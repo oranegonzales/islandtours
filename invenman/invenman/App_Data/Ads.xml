@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Advertisements>
+	<Ad>
+		<ImageUrl>~/Images/ads/sendgrid.jpg</ImageUrl>
+		<NavigateUrl>https://sendgrid.com</NavigateUrl>
+		<AlternateText>SendGrid</AlternateText>
+		<Impressions>25</Impressions>
+		<Keyword>default</Keyword>
+	</Ad>
+	<Ad>
+		<ImageUrl>~/Images/ads/sofi.jpg</ImageUrl>
+		<NavigateUrl>https://sofi.com</NavigateUrl>
+		<AlternateText>Soft</AlternateText>
+		<Impressions>25</Impressions>
+		<Keyword>default</Keyword>
+	</Ad>
+	<Ad>
+		<ImageUrl>~/Images/ads/spyfu.jpg</ImageUrl>
+		<NavigateUrl>https://spyfu.com</NavigateUrl>
+		<AlternateText>SpyFu</AlternateText>
+		<Impressions>25</Impressions>
+		<Keyword>default</Keyword>
+	</Ad>
+	<Ad>
+		<ImageUrl>~/Images/ads/surveymonkey.jpg</ImageUrl>
+		<NavigateUrl>https://surveymonkey.com</NavigateUrl>
+		<AlternateText>SurveyMonkey</AlternateText>
+		<Impressions>25</Impressions>
+		<Keyword>default</Keyword>
+	</Ad>
+</Advertisements>

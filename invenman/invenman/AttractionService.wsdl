@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wsdl:definitions xmlns:s="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://schemas.xmlsoap.org/wsdl/soap12/" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:tns="http://invenman.local/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tm="http://microsoft.com/wsdl/mime/textMatching/" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" targetNamespace="http://invenman.local/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
+  <wsdl:types>
+    <s:schema elementFormDefault="qualified" targetNamespace="http://invenman.local/">
+      <s:element name="GetAttractions">
+        <s:complexType/>
+      </s:element>
+      <s:element name="GetAttractionsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAttractionsResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax"/>
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax"/>
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAttractionByID">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="1" maxOccurs="1" name="attractionID" type="s:int"/>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAttractionByIDResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAttractionByIDResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax"/>
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax"/>
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAttractionsByParish">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="parish" type="s:string"/>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetAttractionsByParishResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetAttractionsByParishResult">
+              <s:complexType>
+                <s:sequence>
+                  <s:any minOccurs="0" maxOccurs="unbounded" namespace="http://www.w3.org/2001/XMLSchema" processContents="lax"/>
+                  <s:any minOccurs="1" namespace="urn:schemas-microsoft-com:xml-diffgram-v1" processContents="lax"/>
+                </s:sequence>
+              </s:complexType>
+            </s:element>
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+    </s:schema>
+  </wsdl:types>
+  <wsdl:message name="GetAttractionsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAttractions"/>
+  </wsdl:message>
+  <wsdl:message name="GetAttractionsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAttractionsResponse"/>
+  </wsdl:message>
+  <wsdl:message name="GetAttractionByIDSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAttractionByID"/>
+  </wsdl:message>
+  <wsdl:message name="GetAttractionByIDSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAttractionByIDResponse"/>
+  </wsdl:message>
+  <wsdl:message name="GetAttractionsByParishSoapIn">
+    <wsdl:part name="parameters" element="tns:GetAttractionsByParish"/>
+  </wsdl:message>
+  <wsdl:message name="GetAttractionsByParishSoapOut">
+    <wsdl:part name="parameters" element="tns:GetAttractionsByParishResponse"/>
+  </wsdl:message>
+  <wsdl:portType name="AttractionServiceSoap">
+    <wsdl:operation name="GetAttractions">
+      <wsdl:input message="tns:GetAttractionsSoapIn"/>
+      <wsdl:output message="tns:GetAttractionsSoapOut"/>
+    </wsdl:operation>
+    <wsdl:operation name="GetAttractionByID">
+      <wsdl:input message="tns:GetAttractionByIDSoapIn"/>
+      <wsdl:output message="tns:GetAttractionByIDSoapOut"/>
+    </wsdl:operation>
+    <wsdl:operation name="GetAttractionsByParish">
+      <wsdl:input message="tns:GetAttractionsByParishSoapIn"/>
+      <wsdl:output message="tns:GetAttractionsByParishSoapOut"/>
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="AttractionServiceSoap" type="tns:AttractionServiceSoap">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="GetAttractions">
+      <soap:operation soapAction="http://invenman.local/GetAttractions" style="document"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAttractionByID">
+      <soap:operation soapAction="http://invenman.local/GetAttractionByID" style="document"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAttractionsByParish">
+      <soap:operation soapAction="http://invenman.local/GetAttractionsByParish" style="document"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="AttractionServiceSoap12" type="tns:AttractionServiceSoap">
+    <soap12:binding transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="GetAttractions">
+      <soap12:operation soapAction="http://invenman.local/GetAttractions" style="document"/>
+      <wsdl:input>
+        <soap12:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAttractionByID">
+      <soap12:operation soapAction="http://invenman.local/GetAttractionByID" style="document"/>
+      <wsdl:input>
+        <soap12:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetAttractionsByParish">
+      <soap12:operation soapAction="http://invenman.local/GetAttractionsByParish" style="document"/>
+      <wsdl:input>
+        <soap12:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal"/>
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="AttractionService">
+    <wsdl:port name="AttractionServiceSoap" binding="tns:AttractionServiceSoap">
+      <soap:address location="https://localhost:44357/AttractionService.asmx"/>
+    </wsdl:port>
+    <wsdl:port name="AttractionServiceSoap12" binding="tns:AttractionServiceSoap12">
+      <soap12:address location="https://localhost:44357/AttractionService.asmx"/>
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>
