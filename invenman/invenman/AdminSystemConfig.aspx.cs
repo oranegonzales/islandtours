@@ -4,6 +4,7 @@ using System.Data.SqlClient;
 using System.Linq;
 using System.Web.Configuration;
 using System.Web.UI;
+using invenman.Configuration;
 
 namespace invenman
 {
@@ -81,7 +82,10 @@ namespace invenman
             txtTransportProviders.Text = NormalizeLines(GetString("TransportProviders",
                 "JUTA Taxi\r\nKnutsford Express\r\nIsland Routes\r\nPrivate Driver"));
 
-            txtFixerKey.Text = GetString("FixerApiKey", "");
+            txtFixerKey.Text = string.IsNullOrWhiteSpace(AppConfiguration.GetFixerApiKey())
+                ? "Not configured"
+                : "Configured outside Web.config";
+            txtFixerKey.ReadOnly = true;
         }
 
         private void SaveToWebConfig()
