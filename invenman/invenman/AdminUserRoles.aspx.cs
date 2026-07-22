@@ -4,6 +4,7 @@ using System.Data;
 using System.Data.SqlClient;
 using System.Web.UI;
 using System.Web.UI.WebControls;
+using invenman.Security;
 
 namespace invenman
 {
@@ -110,8 +111,16 @@ namespace invenman
                 return;
             }
 
+            if (!string.IsNullOrEmpty(newPassword) && newPassword.Length < 12)
+            {
+                lblError.Text = "New passwords must contain at least 12 characters.";
+                return;
+            }
+
             string currentUsername = Session["Username"] as string;
-            if (!string.IsNullOrWhiteSpace(currentUsername) && string.Equals(currentUsername, newUsername, StringComparison.OrdinalIgnoreCase))
+            string usernameBeforeUpdate = GetUsernameById(userId);
+            if (!string.IsNullOrWhiteSpace(currentUsername)
+                && string.Equals(currentUsername, usernameBeforeUpdate, StringComparison.OrdinalIgnoreCase))
             {
                 if (!string.Equals(newRole, "Admin", StringComparison.OrdinalIgnoreCase))
                 {
@@ -126,20 +135,25 @@ namespace invenman
                 }
             }
 
+            string passwordHash = string.IsNullOrEmpty(newPassword)
+                ? null
+                : PasswordSecurity.HashPassword(newPassword);
+
             try
             {
                 using (SqlConnection conn = new SqlConnection(GetConnStr()))
                 using (SqlCommand cmd = new SqlCommand(@"
 UPDATE Users
 SET Username = @Username,
-    UserPassword = CASE WHEN @UserPassword = '' THEN UserPassword ELSE @UserPassword END,
+    UserPassword = CASE WHEN @UserPassword IS NULL THEN UserPassword ELSE @UserPassword END,
     RoleName = @RoleName,
     IsActive = @IsActive,
     Email = NULLIF(@Email, '')
 WHERE UserID = @UserID", conn))
                 {
                     cmd.Parameters.Add("@Username", SqlDbType.VarChar, 100).Value = newUsername;
-                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 200).Value = newPassword;
+                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 512).Value =
+                        (object)passwordHash ?? DBNull.Value;
                     cmd.Parameters.Add("@RoleName", SqlDbType.VarChar, 50).Value = newRole;
                     cmd.Parameters.Add("@IsActive", SqlDbType.Bit).Value = isActive;
                     cmd.Parameters.Add("@Email", SqlDbType.VarChar, 255).Value = newEmail;
@@ -220,6 +234,14 @@ WHERE UserID = @UserID", conn))
                 return;
             }
 
+            if (password.Length < 12)
+            {
+                lblError.Text = "Passwords must contain at least 12 characters.";
+                return;
+            }
+
+            string passwordHash = PasswordSecurity.HashPassword(password);
+
             try
             {
                 if (UsernameExists(username))
@@ -234,7 +256,7 @@ INSERT INTO Users (Username, UserPassword, RoleName, IsActive, Email)
 VALUES (@Username, @UserPassword, @RoleName, @IsActive, NULLIF(@Email, ''))", conn))
                 {
                     cmd.Parameters.Add("@Username", SqlDbType.VarChar, 100).Value = username;
-                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 200).Value = password;
+                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 512).Value = passwordHash;
                     cmd.Parameters.Add("@RoleName", SqlDbType.VarChar, 50).Value = role;
                     cmd.Parameters.Add("@IsActive", SqlDbType.Bit).Value = isActive;
                     cmd.Parameters.Add("@Email", SqlDbType.VarChar, 255).Value = email;
@@ -333,7 +355,7 @@ VALUES (@Username, @UserPassword, @RoleName, @IsActive, NULLIF(@Email, ''))", co
                 return cs.ConnectionString;
             }
 
-            cs = ConfigurationManager.ConnectionStrings["TravelTime"];
+            cs = ConfigurationManager.ConnectionStrings["TravelTimeDb"];
             if (cs != null && !string.IsNullOrWhiteSpace(cs.ConnectionString))
             {
                 return cs.ConnectionString;
