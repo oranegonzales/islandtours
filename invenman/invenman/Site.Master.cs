@@ -1,8 +1,7 @@
 ﻿using System;
-using System.Configuration;
-using System.Data.SqlClient;
 using System.Web;
 using System.Web.UI;
+using invenman.Security;
 
 namespace invenman
 {
@@ -47,54 +46,7 @@ namespace invenman
 
         private void RestoreSessionFromCookieIfNeeded()
         {
-            if (IsLoggedIn())
-            {
-                return;
-            }
-
-            HttpCookie cookie = Request.Cookies["TravelTimeAuth"];
-            if (cookie == null)
-            {
-                return;
-            }
-
-            string username = (cookie.Value ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                ExpireAuthCookie();
-                return;
-            }
-
-            string roleFromDb = GetRoleForUser(username);
-            if (string.IsNullOrWhiteSpace(roleFromDb))
-            {
-                ExpireAuthCookie();
-                return;
-            }
-
-            Session["Username"] = username;
-            Session["Role"] = roleFromDb;
-        }
-
-        private string GetRoleForUser(string username)
-        {
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand("SELECT RoleName FROM Users WHERE Username = @Username AND IsActive = 1", conn))
-            {
-                cmd.Parameters.Add("@Username", System.Data.SqlDbType.VarChar, 100).Value = username;
-
-                conn.Open();
-                object result = cmd.ExecuteScalar();
-
-                if (result == null || result == DBNull.Value)
-                {
-                    return string.Empty;
-                }
-
-                return result.ToString();
-            }
+            AuthSecurity.TryRestoreSession(Context);
         }
 
         private void EnforceAccessRules(bool loggedIn, string role)
@@ -174,15 +126,6 @@ namespace invenman
             }
 
             return key.ToLowerInvariant();
-        }
-
-        private void ExpireAuthCookie()
-        {
-            HttpCookie cookie = new HttpCookie("TravelTimeAuth");
-            cookie.Value = string.Empty;
-            cookie.Expires = DateTime.Now.AddDays(-1);
-            cookie.HttpOnly = true;
-            Response.Cookies.Add(cookie);
         }
 
         private void SafeRedirect(string url)
