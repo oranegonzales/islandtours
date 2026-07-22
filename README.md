@@ -32,7 +32,7 @@ Read [the algorithm notes](docs/ALGORITHM.md) and [architecture guide](docs/ARCH
 
 ## Repository map
 
-`@BT@`text
+```text
 .
 ├── src/IslandTours.Scheduling/              # graph and scheduling domain
 ├── tests/IslandTours.Scheduling.Tests/      # behavioral and algorithm tests
@@ -45,7 +45,7 @@ Read [the algorithm notes](docs/ALGORITHM.md) and [architecture guide](docs/ARCH
         ├── Services/                        # application orchestration
         ├── App_Data/TravelTime.sql          # repeatable schema and indexes
         └── *.aspx                           # Web Forms workflows
-`@BT@`
+```
 
 ## Local setup
 
@@ -63,9 +63,9 @@ Read [the algorithm notes](docs/ALGORITHM.md) and [architecture guide](docs/ARCH
 2. Run `invenman/invenman/App_Data/TravelTime.sql` in SQL Server Management Studio. The migration is repeatable and creates the scheduling columns, fleet table and supporting indexes.
 3. Create the first administrator from PowerShell:
 
-   `@BT@`powershell
+   ```powershell
    .\invenman\invenman\tools\New-TravelTimeAdmin.ps1 -Username admin
-   `@BT@`
+   ```
 
    The command prompts for a password of at least 12 characters and stores only its PBKDF2 hash.
 
@@ -82,15 +82,15 @@ The credential visible in an old repository revision must be revoked at the prov
 
 Run the algorithm suite on any platform with .NET 10:
 
-`@BT@`bash
+```bash
 dotnet test tests/IslandTours.Scheduling.Tests/IslandTours.Scheduling.Tests.csproj -c Release
-`@BT@`
+```
 
 Run reproducible 50, 250 and 1,000-booking measurements:
 
-`@BT@`bash
+```bash
 dotnet run -c Release --project benchmarks/IslandTours.Scheduling.Benchmarks
-`@BT@`
+```
 
 GitHub Actions also restores and compiles the .NET Framework web application on Windows.
 
