@@ -95,20 +95,27 @@ ORDER BY p.PaymentID DESC";
 
             int paymentId = int.Parse(ddlPayments.SelectedValue);
             string reason = txtReason.Text.Trim();
-            string currentUser = Context.User != null && Context.User.Identity != null
-                ? Context.User.Identity.Name
-                : "System";
+            if (reason.Length > 500)
+            {
+                ShowStatus("Refund reason cannot exceed 500 characters.", false);
+                return;
+            }
+            string currentUser = Session["Username"] as string;
+            if (string.IsNullOrWhiteSpace(currentUser))
+            {
+                currentUser = "System";
+            }
 
             try
             {
                 using (SqlConnection conn = new SqlConnection(GetConnectionString()))
                 {
                     conn.Open();
-                    using (SqlTransaction tx = conn.BeginTransaction())
+                    using (SqlTransaction tx = conn.BeginTransaction(IsolationLevel.Serializable))
                     {
                         decimal originalAmount = 0m;
 
-                        using (SqlCommand cmdAmount = new SqlCommand("SELECT Amount FROM Payments WHERE PaymentID = @PaymentID", conn, tx))
+                        using (SqlCommand cmdAmount = new SqlCommand("SELECT Amount FROM Payments WITH (UPDLOCK, ROWLOCK) WHERE PaymentID = @PaymentID", conn, tx))
                         {
                             cmdAmount.Parameters.Add("@PaymentID", SqlDbType.Int).Value = paymentId;
                             object result = cmdAmount.ExecuteScalar();
@@ -133,9 +140,13 @@ ORDER BY p.PaymentID DESC";
                             "INSERT INTO Refunds (PaymentID, RefundAmount, Reason, RefundDate, ProcessedByUser) VALUES (@PaymentID, @RefundAmount, @Reason, GETDATE(), @ProcessedByUser)", conn, tx))
                         {
                             cmdInsert.Parameters.Add("@PaymentID", SqlDbType.Int).Value = paymentId;
-                            cmdInsert.Parameters.Add("@RefundAmount", SqlDbType.Decimal).Value = refundAmount;
-                            cmdInsert.Parameters.Add("@Reason", SqlDbType.VarChar, 500).Value = (object)reason ?? DBNull.Value;
-                            cmdInsert.Parameters.Add("@ProcessedByUser", SqlDbType.VarChar, 100).Value = currentUser;
+                            SqlParameter amount = cmdInsert.Parameters.Add("@RefundAmount", SqlDbType.Decimal);
+                            amount.Precision = 18;
+                            amount.Scale = 2;
+                            amount.Value = refundAmount;
+                            cmdInsert.Parameters.Add("@Reason", SqlDbType.NVarChar, 500).Value =
+                                string.IsNullOrWhiteSpace(reason) ? (object)DBNull.Value : reason;
+                            cmdInsert.Parameters.Add("@ProcessedByUser", SqlDbType.NVarChar, 100).Value = currentUser;
                             cmdInsert.ExecuteNonQuery();
                         }
 
@@ -147,10 +158,11 @@ ORDER BY p.PaymentID DESC";
                 txtReason.Text = "";
                 LoadRefundablePayments();
                 ShowStatus("Refund processed successfully.", true);
+                AuditLogger.Log(this, "RefundProcessed", "Payment " + paymentId.ToString());
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                ShowStatus("An error occurred while processing the refund. Detail: " + ex.Message, false);
+                ShowStatus("The refund could not be processed.", false);
             }
         }
 

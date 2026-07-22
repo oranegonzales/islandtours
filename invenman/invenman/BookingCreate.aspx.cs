@@ -1,8 +1,10 @@
-﻿using System;
+using System;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Globalization;
 using System.Web.UI.WebControls;
+using invenman.Security;
 
 namespace invenman
 {
@@ -10,148 +12,96 @@ namespace invenman
     {
         protected void Page_Load(object sender, EventArgs e)
         {
-            string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
-
+            bool isClient = IsClient();
             if (!IsPostBack)
             {
                 BindClients(isClient);
                 BindAttractions();
+                txtTourDate.Text = DateTime.Today.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                txtPartySize.Text = "1";
             }
 
             ApplyRoleUi(isClient);
         }
 
-        private string GetCurrentRole()
+        private bool IsClient()
         {
-            object r = Session["Role"];
-            if (r == null)
-            {
-                return "Guest";
-            }
-            string role = r.ToString();
-            if (string.IsNullOrWhiteSpace(role))
-            {
-                return "Guest";
-            }
-            return role;
+            return string.Equals(
+                Session["Role"] as string,
+                "Client",
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private void ApplyRoleUi(bool isClient)
         {
-            if (isClient)
-            {
-                lblMode.Text = "Client booking mode";
-
-                ddlClient.Enabled = false;
-
-                rfvClient.Enabled = true;
-
-                txtTotalAmount.Enabled = false;
-                rfvTotalAmount.Enabled = false;
-                revTotalAmount.Enabled = false;
-
-                ddlPaymentStatus.Enabled = false;
-                ddlBookingStatus.Enabled = false;
-
-                lblClientAmountNote.Text = "Amount and status will be set automatically.";
-            }
-            else
-            {
-                lblMode.Text = "Staff or admin booking mode";
-
-                ddlClient.Enabled = true;
-
-                rfvClient.Enabled = true;
-
-                txtTotalAmount.Enabled = true;
-                rfvTotalAmount.Enabled = true;
-                revTotalAmount.Enabled = true;
-
-                ddlPaymentStatus.Enabled = true;
-                ddlBookingStatus.Enabled = true;
-
-                lblClientAmountNote.Text = "";
-            }
+            lblMode.Text = isClient
+                ? "Create a booking for your linked client profile."
+                : "Create a booking on behalf of a client.";
+            ddlClient.Enabled = !isClient;
+            txtTotalAmount.Enabled = !isClient;
+            rfvTotalAmount.Enabled = !isClient;
+            revTotalAmount.Enabled = !isClient;
+            ddlPaymentStatus.Enabled = !isClient;
+            ddlBookingStatus.Enabled = !isClient;
+            lblClientAmountNote.Text = isClient
+                ? "The amount is calculated from the attraction price and party size."
+                : string.Empty;
         }
 
         private void BindClients(bool isClient)
         {
+            ddlClient.Items.Clear();
             if (isClient)
             {
-                bool boundToLoggedIn = TryBindLoggedInClient();
-                if (!boundToLoggedIn)
+                int? clientId = ClientIdentity.GetClientId(this);
+                if (!clientId.HasValue)
                 {
-                    BindClientsAll();
-                    if (ddlClient.Items.Count > 1)
+                    ddlClient.Items.Add(new ListItem("No linked client profile", ""));
+                    btnSave.Enabled = false;
+                    lblMessage.CssClass = "notice notice-error";
+                    lblMessage.Text = "Your account is not linked to a client profile. Contact staff before booking.";
+                    return;
+                }
+
+                using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+                using (SqlCommand command = new SqlCommand(
+                    "SELECT FirstName, LastName FROM dbo.Clients WHERE ClientID=@ClientID",
+                    connection))
+                {
+                    command.Parameters.Add("@ClientID", SqlDbType.Int).Value = clientId.Value;
+                    connection.Open();
+                    using (SqlDataReader reader = command.ExecuteReader(CommandBehavior.SingleRow))
                     {
-                        ddlClient.SelectedIndex = 1;
+                        if (reader.Read())
+                        {
+                            ddlClient.Items.Add(new ListItem(
+                                reader.GetString(0) + " " + reader.GetString(1),
+                                clientId.Value.ToString(CultureInfo.InvariantCulture)));
+                            return;
+                        }
                     }
                 }
-            }
-            else
-            {
-                BindClientsAll();
-            }
-        }
 
-        private bool TryBindLoggedInClient()
-        {
-            string username = Session["Username"] as string;
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                return false;
+                btnSave.Enabled = false;
+                lblMessage.CssClass = "notice notice-error";
+                lblMessage.Text = "The linked client profile could not be loaded.";
+                return;
             }
 
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT ClientID, FirstName, LastName FROM Clients WHERE Email = @Email",
-                conn))
+            ddlClient.Items.Add(new ListItem("Select a client", ""));
+            using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+            using (SqlCommand command = new SqlCommand(
+                "SELECT ClientID, FirstName, LastName FROM dbo.Clients ORDER BY LastName, FirstName",
+                connection))
             {
-                cmd.Parameters.Add("@Email", SqlDbType.VarChar, 255).Value = username;
-
-                conn.Open();
-                using (SqlDataReader reader = cmd.ExecuteReader())
-                {
-                    if (!reader.Read())
-                    {
-                        return false;
-                    }
-
-                    string name = reader["FirstName"].ToString() + " " + reader["LastName"].ToString();
-                    string id = reader["ClientID"].ToString();
-
-                    ddlClient.Items.Clear();
-                    ddlClient.Items.Add(new ListItem(name, id));
-                    ddlClient.SelectedIndex = 0;
-
-                    return true;
-                }
-            }
-        }
-
-        private void BindClientsAll()
-        {
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            ddlClient.Items.Clear();
-            ddlClient.Items.Add(new ListItem("-- Select client --", ""));
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT ClientID, FirstName, LastName FROM Clients ORDER BY LastName, FirstName",
-                conn))
-            {
-                conn.Open();
-                using (SqlDataReader reader = cmd.ExecuteReader())
+                connection.Open();
+                using (SqlDataReader reader = command.ExecuteReader())
                 {
                     while (reader.Read())
                     {
-                        string name = reader["FirstName"].ToString() + " " + reader["LastName"].ToString();
-                        string id = reader["ClientID"].ToString();
-                        ddlClient.Items.Add(new ListItem(name, id));
+                        ddlClient.Items.Add(new ListItem(
+                            reader.GetString(1) + " " + reader.GetString(2),
+                            reader.GetInt32(0).ToString(CultureInfo.InvariantCulture)));
                     }
                 }
             }
@@ -159,24 +109,21 @@ namespace invenman
 
         private void BindAttractions()
         {
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
             ddlAttraction.Items.Clear();
-            ddlAttraction.Items.Add(new ListItem("-- Select attraction --", ""));
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT AttractionID, Name, Parish FROM Attractions WHERE IsActive = 1 ORDER BY Parish, Name",
-                conn))
+            ddlAttraction.Items.Add(new ListItem("Select an attraction", ""));
+            using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+            using (SqlCommand command = new SqlCommand(
+                "SELECT AttractionID, Name, Parish FROM dbo.Attractions WHERE IsActive=1 ORDER BY Parish, Name",
+                connection))
             {
-                conn.Open();
-                using (SqlDataReader reader = cmd.ExecuteReader())
+                connection.Open();
+                using (SqlDataReader reader = command.ExecuteReader())
                 {
                     while (reader.Read())
                     {
-                        string name = reader["Name"].ToString() + " (" + reader["Parish"].ToString() + ")";
-                        string id = reader["AttractionID"].ToString();
-                        ddlAttraction.Items.Add(new ListItem(name, id));
+                        ddlAttraction.Items.Add(new ListItem(
+                            reader.GetString(1) + " · " + reader.GetString(2),
+                            reader.GetInt32(0).ToString(CultureInfo.InvariantCulture)));
                     }
                 }
             }
@@ -184,118 +131,155 @@ namespace invenman
 
         protected void btnSave_Click(object sender, EventArgs e)
         {
-            string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
+            if (!Page.IsValid) return;
 
-            if (!Page.IsValid)
-            {
-                return;
-            }
-
+            bool isClient = IsClient();
             int clientId;
             int attractionId;
+            int partySize;
             DateTime tourDate;
-            decimal totalAmount;
-            string paymentStatus;
-            string bookingStatus;
 
-            if (!int.TryParse(ddlClient.SelectedValue, out clientId))
+            if (!int.TryParse(ddlClient.SelectedValue, out clientId) ||
+                !int.TryParse(ddlAttraction.SelectedValue, out attractionId) ||
+                !int.TryParse(txtPartySize.Text, out partySize) ||
+                partySize < 1 ||
+                partySize > 50 ||
+                !DateTime.TryParseExact(
+                    txtTourDate.Text,
+                    "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out tourDate) ||
+                tourDate.Date < DateTime.Today)
             {
-                lblMessage.CssClass = "mt-3 d-block text-danger";
-                lblMessage.Text = "Select a valid client.";
-                return;
-            }
-
-            if (!int.TryParse(ddlAttraction.SelectedValue, out attractionId))
-            {
-                lblMessage.CssClass = "mt-3 d-block text-danger";
-                lblMessage.Text = "Select a valid attraction.";
-                return;
-            }
-
-            if (!DateTime.TryParse(txtTourDate.Text.Trim(), out tourDate))
-            {
-                lblMessage.CssClass = "mt-3 d-block text-danger";
-                lblMessage.Text = "Enter a valid tour date.";
+                ShowError("Choose a client, attraction, future date, and party size from 1 to 50.");
                 return;
             }
 
             if (isClient)
             {
-                string connStrLocal = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-                using (SqlConnection conn = new SqlConnection(connStrLocal))
-                using (SqlCommand cmd = new SqlCommand(
-                    "SELECT BasePrice FROM Attractions WHERE AttractionID = @AttractionID",
-                    conn))
+                int? linkedClientId = ClientIdentity.GetClientId(this);
+                if (!linkedClientId.HasValue || linkedClientId.Value != clientId)
                 {
-                    cmd.Parameters.Add("@AttractionID", SqlDbType.Int).Value = attractionId;
-
-                    conn.Open();
-                    object result = cmd.ExecuteScalar();
-                    if (result == null || result == DBNull.Value)
-                    {
-                        lblMessage.CssClass = "mt-3 d-block text-danger";
-                        lblMessage.Text = "Unable to find attraction pricing.";
-                        return;
-                    }
-
-                    totalAmount = Convert.ToDecimal(result);
+                    ShowError("Your client profile could not be verified.");
+                    return;
                 }
+            }
 
+            decimal totalAmount;
+            string paymentStatus;
+            string bookingStatus;
+            if (isClient)
+            {
+                decimal? basePrice = GetActiveAttractionPrice(attractionId);
+                if (!basePrice.HasValue)
+                {
+                    ShowError("That attraction is no longer available.");
+                    return;
+                }
+                totalAmount = basePrice.Value * partySize;
                 paymentStatus = "Pending";
                 bookingStatus = "Active";
             }
             else
             {
-                if (!decimal.TryParse(txtTotalAmount.Text.Trim(), out totalAmount))
+                if (!decimal.TryParse(
+                    txtTotalAmount.Text,
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
+                    out totalAmount) ||
+                    totalAmount < 0 ||
+                    !IsAllowedPaymentStatus(ddlPaymentStatus.SelectedValue) ||
+                    !IsAllowedBookingStatus(ddlBookingStatus.SelectedValue))
                 {
-                    lblMessage.CssClass = "mt-3 d-block text-danger";
-                    lblMessage.Text = "Enter a valid total amount.";
+                    ShowError("Review the amount and booking statuses.");
                     return;
                 }
-
                 paymentStatus = ddlPaymentStatus.SelectedValue;
                 bookingStatus = ddlBookingStatus.SelectedValue;
             }
 
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
+            const string sql = @"
+INSERT INTO dbo.Bookings
+    (ClientID, AttractionID, BookingDate, TourDate, PartySize, TotalAmount, PaymentStatus, BookingStatus)
+SELECT @ClientID, a.AttractionID, @BookingDate, @TourDate, @PartySize, @TotalAmount, @PaymentStatus, @BookingStatus
+FROM dbo.Attractions AS a
+WHERE a.AttractionID=@AttractionID AND a.IsActive=1;";
 
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "INSERT INTO Bookings (ClientID, AttractionID, BookingDate, TourDate, TotalAmount, PaymentStatus, BookingStatus) " +
-                "VALUES (@ClientID, @AttractionID, @BookingDate, @TourDate, @TotalAmount, @PaymentStatus, @BookingStatus)",
-                conn))
+            try
             {
-                cmd.Parameters.Add("@ClientID", SqlDbType.Int).Value = clientId;
-                cmd.Parameters.Add("@AttractionID", SqlDbType.Int).Value = attractionId;
-                cmd.Parameters.Add("@BookingDate", SqlDbType.Date).Value = DateTime.Today;
-                cmd.Parameters.Add("@TourDate", SqlDbType.Date).Value = tourDate.Date;
-                cmd.Parameters.Add("@TotalAmount", SqlDbType.Decimal).Value = totalAmount;
-                cmd.Parameters.Add("@PaymentStatus", SqlDbType.VarChar, 50).Value = paymentStatus;
-                cmd.Parameters.Add("@BookingStatus", SqlDbType.VarChar, 50).Value = bookingStatus;
-
-                try
+                using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+                using (SqlCommand command = new SqlCommand(sql, connection))
                 {
-                    conn.Open();
-                    cmd.ExecuteNonQuery();
+                    command.Parameters.Add("@ClientID", SqlDbType.Int).Value = clientId;
+                    command.Parameters.Add("@AttractionID", SqlDbType.Int).Value = attractionId;
+                    command.Parameters.Add("@BookingDate", SqlDbType.Date).Value = DateTime.Today;
+                    command.Parameters.Add("@TourDate", SqlDbType.Date).Value = tourDate.Date;
+                    command.Parameters.Add("@PartySize", SqlDbType.Int).Value = partySize;
+                    SqlParameter amount = command.Parameters.Add("@TotalAmount", SqlDbType.Decimal);
+                    amount.Precision = 18;
+                    amount.Scale = 2;
+                    amount.Value = totalAmount;
+                    command.Parameters.Add("@PaymentStatus", SqlDbType.NVarChar, 50).Value = paymentStatus;
+                    command.Parameters.Add("@BookingStatus", SqlDbType.NVarChar, 50).Value = bookingStatus;
+                    connection.Open();
 
-                    lblMessage.CssClass = "mt-3 d-block text-success";
-                    lblMessage.Text = "Booking saved successfully.";
+                    if (command.ExecuteNonQuery() != 1)
+                    {
+                        ShowError("That attraction is no longer available.");
+                        return;
+                    }
+                }
 
-                    ddlClient.SelectedIndex = 0;
-                    ddlAttraction.SelectedIndex = 0;
-                    txtTourDate.Text = "";
-                    txtTotalAmount.Text = "";
-                    ddlPaymentStatus.SelectedValue = "Pending";
-                    ddlBookingStatus.SelectedValue = "Active";
-                }
-                catch (Exception ex)
-                {
-                    lblMessage.CssClass = "mt-3 d-block text-danger";
-                    lblMessage.Text = "Error saving booking: " + ex.Message;
-                }
+                AuditLogger.Log(this, "BookingCreated", "Client " + clientId.ToString(CultureInfo.InvariantCulture));
+                lblMessage.CssClass = "notice notice-success";
+                lblMessage.Text = "Booking created.";
+                BindClients(isClient);
+                BindAttractions();
+                txtPartySize.Text = "1";
+                txtTotalAmount.Text = string.Empty;
             }
+            catch (SqlException ex)
+            {
+                AuditLogger.Log(this, "BookingCreateFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                ShowError("The booking could not be saved. Try again.");
+            }
+        }
+
+        private decimal? GetActiveAttractionPrice(int attractionId)
+        {
+            using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+            using (SqlCommand command = new SqlCommand(
+                "SELECT BasePrice FROM dbo.Attractions WHERE AttractionID=@AttractionID AND IsActive=1",
+                connection))
+            {
+                command.Parameters.Add("@AttractionID", SqlDbType.Int).Value = attractionId;
+                connection.Open();
+                object value = command.ExecuteScalar();
+                return value == null || value == DBNull.Value ? (decimal?)null : Convert.ToDecimal(value);
+            }
+        }
+
+        private static bool IsAllowedPaymentStatus(string value)
+        {
+            return value == "Pending" || value == "Paid" || value == "Cancelled";
+        }
+
+        private static bool IsAllowedBookingStatus(string value)
+        {
+            return value == "Active" || value == "Completed" ||
+                   value == "Cancelled" || value == "Transport assigned";
+        }
+
+        private static string GetConnectionString()
+        {
+            return ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
+        }
+
+        private void ShowError(string message)
+        {
+            lblMessage.CssClass = "notice notice-error";
+            lblMessage.Text = message;
         }
     }
 }

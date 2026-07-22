@@ -1,8 +1,10 @@
-﻿using System;
+using System;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Globalization;
 using System.Web.UI.WebControls;
+using invenman.Security;
 
 namespace invenman
 {
@@ -10,110 +12,87 @@ namespace invenman
     {
         protected void Page_Load(object sender, EventArgs e)
         {
-            if (!IsPostBack)
-            {
-                LoadBookings();
-            }
+            bool isClient = IsClient();
+            lblMode.Text = isClient
+                ? "Review or cancel bookings linked to your client profile."
+                : "Review booking state or make an operational correction.";
 
-            string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
-
-            if (isClient)
-            {
-                lblMode.Text = "Client bookings mode (cancel only)";
-                HideEditColumn();
-            }
-            else
-            {
-                lblMode.Text = "Staff or admin bookings mode (edit and cancel)";
-            }
+            if (!IsPostBack) LoadBookings();
+            if (isClient) HideEditColumn();
         }
 
-        private string GetCurrentRole()
+        private bool IsClient()
         {
-            object r = Session["Role"];
-            if (r == null)
-            {
-                return "Guest";
-            }
-            string role = r.ToString();
-            if (string.IsNullOrWhiteSpace(role))
-            {
-                return "Guest";
-            }
-            return role;
+            return string.Equals(Session["Role"] as string, "Client", StringComparison.OrdinalIgnoreCase);
         }
 
         private void LoadBookings()
         {
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT b.BookingID, c.FirstName + ' ' + c.LastName AS ClientName, a.Name AS AttractionName, " +
-                "b.TourDate, b.TotalAmount, b.PaymentStatus, b.BookingStatus " +
-                "FROM Bookings b " +
-                "INNER JOIN Clients c ON b.ClientID = c.ClientID " +
-                "INNER JOIN Attractions a ON b.AttractionID = a.AttractionID " +
-                "WHERE b.BookingStatus <> 'Cancelled' " +
-                "ORDER BY b.TourDate DESC, b.BookingID DESC",
-                conn))
-            using (SqlDataAdapter da = new SqlDataAdapter(cmd))
+            bool isClient = IsClient();
+            int? clientId = isClient ? ClientIdentity.GetClientId(this) : null;
+            if (isClient && !clientId.HasValue)
             {
-                DataTable dt = new DataTable();
+                gvBookings.DataSource = null;
+                gvBookings.DataBind();
+                ShowError("Your account is not linked to a client profile.");
+                return;
+            }
 
-                try
+            const string sql = @"
+SELECT TOP (500)
+       b.BookingID,
+       c.FirstName + N' ' + c.LastName AS ClientName,
+       a.Name AS AttractionName,
+       b.TourDate,
+       b.TotalAmount,
+       b.PaymentStatus,
+       b.BookingStatus
+FROM dbo.Bookings AS b
+INNER JOIN dbo.Clients AS c ON c.ClientID=b.ClientID
+INNER JOIN dbo.Attractions AS a ON a.AttractionID=b.AttractionID
+WHERE b.BookingStatus<>N'Cancelled'
+  AND (@ClientID IS NULL OR b.ClientID=@ClientID)
+ORDER BY b.TourDate DESC, b.BookingID DESC;";
+
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+                using (SqlCommand command = new SqlCommand(sql, connection))
                 {
-                    conn.Open();
-                    da.Fill(dt);
-
-                    gvBookings.DataSource = dt;
+                    command.Parameters.Add("@ClientID", SqlDbType.Int).Value =
+                        clientId.HasValue ? (object)clientId.Value : DBNull.Value;
+                    var table = new DataTable();
+                    using (var adapter = new SqlDataAdapter(command))
+                    {
+                        adapter.Fill(table);
+                    }
+                    gvBookings.DataSource = table;
                     gvBookings.DataBind();
-
-                    if (dt.Rows.Count == 0)
-                    {
-                        lblMessage.CssClass = "mt-2 d-block text-muted";
-                        lblMessage.Text = "No bookings found.";
-                    }
-                    else
-                    {
-                        lblMessage.Text = "";
-                    }
-                }
-                catch (Exception ex)
-                {
-                    lblMessage.CssClass = "mt-2 d-block text-danger";
-                    lblMessage.Text = "Error loading bookings: " + ex.Message;
+                    lblMessage.Text = table.Rows.Count == 0 ? "No current bookings found." : string.Empty;
+                    lblMessage.CssClass = "notice notice-neutral";
                 }
             }
-
-            string roleAfter = GetCurrentRole();
-            bool isClientAfter = string.Equals(roleAfter, "Client", StringComparison.OrdinalIgnoreCase);
-            if (isClientAfter)
+            catch (SqlException ex)
             {
-                HideEditColumn();
+                AuditLogger.Log(this, "BookingListFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                ShowError("Bookings could not be loaded.");
             }
+
+            if (isClient) HideEditColumn();
         }
 
         private void HideEditColumn()
         {
-            if (gvBookings.Columns.Count >= 8)
-            {
-                gvBookings.Columns[7].Visible = false;
-            }
+            if (gvBookings.Columns.Count > 7) gvBookings.Columns[7].Visible = false;
         }
 
         protected void gvBookings_RowEditing(object sender, GridViewEditEventArgs e)
         {
-            string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
-
-            if (isClient)
+            if (!AuthorizationRules.IsStaffOrAdmin(Session["Role"] as string))
             {
                 e.Cancel = true;
                 return;
             }
-
             gvBookings.EditIndex = e.NewEditIndex;
             LoadBookings();
         }
@@ -126,100 +105,137 @@ namespace invenman
 
         protected void gvBookings_RowUpdating(object sender, GridViewUpdateEventArgs e)
         {
-            string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
-
-            if (isClient)
+            if (!AuthorizationRules.IsStaffOrAdmin(Session["Role"] as string))
             {
                 e.Cancel = true;
-                gvBookings.EditIndex = -1;
-                LoadBookings();
                 return;
             }
 
             int bookingId = Convert.ToInt32(gvBookings.DataKeys[e.RowIndex].Value);
-
             GridViewRow row = gvBookings.Rows[e.RowIndex];
-
-            DropDownList ddlPayment = row.FindControl("ddlPaymentStatusEdit") as DropDownList;
-            DropDownList ddlBooking = row.FindControl("ddlBookingStatusEdit") as DropDownList;
-
-            if (ddlPayment == null || ddlBooking == null)
+            DropDownList payment = row.FindControl("ddlPaymentStatusEdit") as DropDownList;
+            DropDownList booking = row.FindControl("ddlBookingStatusEdit") as DropDownList;
+            if (payment == null || booking == null ||
+                !IsAllowedPaymentStatus(payment.SelectedValue) ||
+                !IsAllowedBookingStatus(booking.SelectedValue))
             {
-                lblMessage.CssClass = "mt-2 d-block text-danger";
-                lblMessage.Text = "Unable to update booking.";
+                ShowError("Choose valid booking statuses.");
                 return;
             }
 
-            string paymentStatus = ddlPayment.SelectedValue;
-            string bookingStatus = ddlBooking.SelectedValue;
+            const string sql = @"
+UPDATE dbo.Bookings
+SET PaymentStatus=@PaymentStatus, BookingStatus=@BookingStatus
+WHERE BookingID=@BookingID AND BookingStatus<>N'Cancelled';";
 
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "UPDATE Bookings SET PaymentStatus = @PaymentStatus, BookingStatus = @BookingStatus WHERE BookingID = @BookingID",
-                conn))
+            try
             {
-                cmd.Parameters.Add("@PaymentStatus", SqlDbType.VarChar, 50).Value = paymentStatus;
-                cmd.Parameters.Add("@BookingStatus", SqlDbType.VarChar, 50).Value = bookingStatus;
-                cmd.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
-
-                try
+                using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+                using (SqlCommand command = new SqlCommand(sql, connection))
                 {
-                    conn.Open();
-                    cmd.ExecuteNonQuery();
-
-                    lblMessage.CssClass = "mt-2 d-block text-success";
-                    lblMessage.Text = "Booking updated.";
-
-                    gvBookings.EditIndex = -1;
-                    LoadBookings();
+                    command.Parameters.Add("@PaymentStatus", SqlDbType.NVarChar, 50).Value = payment.SelectedValue;
+                    command.Parameters.Add("@BookingStatus", SqlDbType.NVarChar, 50).Value = booking.SelectedValue;
+                    command.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
+                    connection.Open();
+                    if (command.ExecuteNonQuery() != 1)
+                    {
+                        ShowError("The booking changed before it could be saved.");
+                        return;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    lblMessage.CssClass = "mt-2 d-block text-danger";
-                    lblMessage.Text = "Error updating booking: " + ex.Message;
-                }
+
+                AuditLogger.Log(this, "BookingUpdated", "Booking " + bookingId.ToString(CultureInfo.InvariantCulture));
+                gvBookings.EditIndex = -1;
+                LoadBookings();
+                lblMessage.CssClass = "notice notice-success";
+                lblMessage.Text = "Booking updated.";
+            }
+            catch (SqlException ex)
+            {
+                AuditLogger.Log(this, "BookingUpdateFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                ShowError("The booking could not be updated.");
             }
         }
 
         protected void gvBookings_RowCommand(object sender, GridViewCommandEventArgs e)
         {
-            if (e.CommandName != "CancelBooking")
+            if (e.CommandName != "CancelBooking") return;
+
+            int rowIndex;
+            if (!int.TryParse(Convert.ToString(e.CommandArgument, CultureInfo.InvariantCulture), out rowIndex) ||
+                rowIndex < 0 ||
+                rowIndex >= gvBookings.Rows.Count)
             {
+                ShowError("Select a valid booking.");
                 return;
             }
 
-            int rowIndex = Convert.ToInt32(e.CommandArgument);
             int bookingId = Convert.ToInt32(gvBookings.DataKeys[rowIndex].Value);
-
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "UPDATE Bookings SET BookingStatus = 'Cancelled' WHERE BookingID = @BookingID",
-                conn))
+            bool isClient = IsClient();
+            int? clientId = isClient ? ClientIdentity.GetClientId(this) : null;
+            if (isClient && !clientId.HasValue)
             {
-                cmd.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
-
-                try
-                {
-                    conn.Open();
-                    cmd.ExecuteNonQuery();
-
-                    lblMessage.CssClass = "mt-2 d-block text-success";
-                    lblMessage.Text = "Booking cancelled.";
-
-                    gvBookings.EditIndex = -1;
-                    LoadBookings();
-                }
-                catch (Exception ex)
-                {
-                    lblMessage.CssClass = "mt-2 d-block text-danger";
-                    lblMessage.Text = "Error cancelling booking: " + ex.Message;
-                }
+                ShowError("Your client profile could not be verified.");
+                return;
             }
+
+            const string sql = @"
+UPDATE dbo.Bookings
+SET BookingStatus=N'Cancelled'
+WHERE BookingID=@BookingID
+  AND BookingStatus NOT IN (N'Cancelled', N'Completed')
+  AND TourDate>=CAST(GETDATE() AS date)
+  AND (@ClientID IS NULL OR ClientID=@ClientID);";
+
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+                using (SqlCommand command = new SqlCommand(sql, connection))
+                {
+                    command.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
+                    command.Parameters.Add("@ClientID", SqlDbType.Int).Value =
+                        clientId.HasValue ? (object)clientId.Value : DBNull.Value;
+                    connection.Open();
+                    if (command.ExecuteNonQuery() != 1)
+                    {
+                        ShowError("This booking cannot be cancelled or no longer belongs to this account.");
+                        return;
+                    }
+                }
+
+                AuditLogger.Log(this, "BookingCancelled", "Booking " + bookingId.ToString(CultureInfo.InvariantCulture));
+                gvBookings.EditIndex = -1;
+                LoadBookings();
+                lblMessage.CssClass = "notice notice-success";
+                lblMessage.Text = "Booking cancelled.";
+            }
+            catch (SqlException ex)
+            {
+                AuditLogger.Log(this, "BookingCancelFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                ShowError("The booking could not be cancelled.");
+            }
+        }
+
+        private static bool IsAllowedPaymentStatus(string value)
+        {
+            return value == "Pending" || value == "Paid" || value == "Cancelled";
+        }
+
+        private static bool IsAllowedBookingStatus(string value)
+        {
+            return value == "Active" || value == "Completed" ||
+                   value == "Cancelled" || value == "Transport assigned";
+        }
+
+        private static string GetConnectionString()
+        {
+            return ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
+        }
+
+        private void ShowError(string message)
+        {
+            lblMessage.CssClass = "notice notice-error";
+            lblMessage.Text = message;
         }
     }
 }

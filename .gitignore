@@ -1,0 +1,16 @@
+.vs/
+bin/
+obj/
+packages/
+*.user
+*.suo
+*.cache
+*.dbmdl
+*.jfm
+*.bak
+*.pfx
+*.publishsettings
+AppSettings.local.config
+TestResults/
+BenchmarkDotNet.Artifacts/
+*.trx

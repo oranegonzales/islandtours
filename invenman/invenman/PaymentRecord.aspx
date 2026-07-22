@@ -1,125 +1,58 @@
-﻿<%@ Page Language="C#" AutoEventWireup="true" CodeBehind="PaymentRecord.aspx.cs" Inherits="invenman.PaymentRecord" MasterPageFile="~/Site.Master" %>
+<%@ Page Title="Payments" Language="C#" AutoEventWireup="true"
+    CodeBehind="PaymentRecord.aspx.cs" Inherits="invenman.PaymentRecord"
+    MasterPageFile="~/Site.Master" %>
 
 <asp:Content ID="Content1" ContentPlaceHolderID="MainContent" runat="server">
-    <h2>Make payment</h2>
+    <section class="page-heading">
+        <div>
+            <span class="eyebrow">Payments</span>
+            <h1>Payment options</h1>
+            <asp:Label ID="lblMode" runat="server" CssClass="page-intro"></asp:Label>
+        </div>
+    </section>
 
-    <asp:Label ID="lblMessage" runat="server" CssClass="text-danger"></asp:Label><br />
-    <asp:Label ID="lblSuccess" runat="server" CssClass="text-success"></asp:Label>
+    <asp:Label ID="lblMessage" runat="server" CssClass="notice"></asp:Label>
 
-    <table style="margin-top:15px;">
-        <tr>
-            <td style="padding:4px 8px;">Select booking</td>
-            <td style="padding:4px 8px;">
-                <asp:DropDownList ID="ddlBooking" runat="server" AutoPostBack="true" OnSelectedIndexChanged="ddlBooking_SelectedIndexChanged"></asp:DropDownList>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:4px 8px;">Payment method</td>
-            <td style="padding:4px 8px;">
-                <asp:DropDownList ID="ddlPaymentMethod" runat="server" AutoPostBack="true" OnSelectedIndexChanged="ddlPaymentMethod_SelectedIndexChanged">
-                    <asp:ListItem Text="Card" Value="Card"></asp:ListItem>
-                    <asp:ListItem Text="Cash at office" Value="Cash"></asp:ListItem>
-                    <asp:ListItem Text="Bank transfer" Value="Bank"></asp:ListItem>
-                </asp:DropDownList>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:4px 8px;">Payment amount (JMD)</td>
-            <td style="padding:4px 8px;">
-                <asp:TextBox ID="txtAmount" runat="server"></asp:TextBox>
+    <section class="surface">
+        <div class="form-grid">
+            <div class="field field-span-full">
+                <label for="<%= ddlBooking.ClientID %>">Booking and outstanding balance</label>
+                <asp:DropDownList ID="ddlBooking" runat="server" CssClass="form-select"
+                    AutoPostBack="true" OnSelectedIndexChanged="ddlBooking_SelectedIndexChanged"></asp:DropDownList>
+            </div>
+
+            <div class="field field-span-2">
+                <label for="<%= ddlPaymentMethod.ClientID %>">Payment method</label>
+                <asp:DropDownList ID="ddlPaymentMethod" runat="server" CssClass="form-select"
+                    AutoPostBack="true" OnSelectedIndexChanged="ddlPaymentMethod_SelectedIndexChanged"></asp:DropDownList>
+            </div>
+
+            <div class="field">
+                <label for="<%= txtAmount.ClientID %>">Amount (JMD)</label>
+                <asp:TextBox ID="txtAmount" runat="server" CssClass="form-control"></asp:TextBox>
                 <asp:RequiredFieldValidator ID="rfvAmount" runat="server"
-                    ControlToValidate="txtAmount"
-                    ErrorMessage="Amount is required"
-                    Display="Dynamic"
-                    CssClass="text-danger"
-                    ValidationGroup="CardPayment"></asp:RequiredFieldValidator>
+                    ControlToValidate="txtAmount" ErrorMessage="Enter an amount."
+                    Display="Dynamic" CssClass="field-error"></asp:RequiredFieldValidator>
                 <asp:RegularExpressionValidator ID="revAmount" runat="server"
-                    ControlToValidate="txtAmount"
-                    ErrorMessage="Enter a valid amount like 4500 or 4500.50"
+                    ControlToValidate="txtAmount" ErrorMessage="Enter a valid amount."
                     ValidationExpression="^[0-9]+(\.[0-9]{1,2})?$"
-                    Display="Dynamic"
-                    CssClass="text-danger"
-                    ValidationGroup="CardPayment"></asp:RegularExpressionValidator>
-            </td>
-        </tr>
-    </table>
+                    Display="Dynamic" CssClass="field-error"></asp:RegularExpressionValidator>
+            </div>
 
-    <asp:Panel ID="pnlInstructions" runat="server" Visible="false" Style="margin-top:10px; border:1px solid #888; padding:8px;">
-        <asp:Label ID="lblInstructions" runat="server"></asp:Label>
-    </asp:Panel>
+            <div class="field">
+                <label for="<%= txtTransactionReference.ClientID %>">Transaction reference</label>
+                <asp:TextBox ID="txtTransactionReference" runat="server" CssClass="form-control" MaxLength="200"></asp:TextBox>
+                <span class="field-note">Required for bank transfers and card-terminal records.</span>
+            </div>
+        </div>
 
-    <asp:Panel ID="pnlCardDetails" runat="server" Style="margin-top:16px; border:1px solid #888; padding:10px;">
-        <h3>Card details</h3>
+        <asp:Panel ID="pnlInstructions" runat="server" CssClass="notice notice-neutral">
+            <asp:Label ID="lblInstructions" runat="server"></asp:Label>
+        </asp:Panel>
 
-        <table>
-            <tr>
-                <td style="padding:4px 8px;">Name on card</td>
-                <td style="padding:4px 8px;">
-                    <asp:TextBox ID="txtCardName" runat="server"></asp:TextBox>
-                    <asp:RequiredFieldValidator ID="rfvCardName" runat="server"
-                        ControlToValidate="txtCardName"
-                        ErrorMessage="Name on card is required"
-                        Display="Dynamic"
-                        CssClass="text-danger"
-                        ValidationGroup="CardPayment"></asp:RequiredFieldValidator>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding:4px 8px;">Card number</td>
-                <td style="padding:4px 8px;">
-                    <asp:TextBox ID="txtCardNumber" runat="server" MaxLength="16"></asp:TextBox>
-                    <asp:RegularExpressionValidator ID="revCardNumber" runat="server"
-                        ControlToValidate="txtCardNumber"
-                        ErrorMessage="Enter a valid 16 digit card number"
-                        ValidationExpression="^[0-9]{16}$"
-                        Display="Dynamic"
-                        CssClass="text-danger"
-                        ValidationGroup="CardPayment"></asp:RegularExpressionValidator>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding:4px 8px;">Expiry (MM/YY)</td>
-                <td style="padding:4px 8px;">
-                    <asp:TextBox ID="txtExpiry" runat="server" MaxLength="5"></asp:TextBox>
-                    <asp:RegularExpressionValidator ID="revExpiry" runat="server"
-                        ControlToValidate="txtExpiry"
-                        ErrorMessage="Enter expiry as MM/YY, year not past 55"
-                        ValidationExpression="^(0[1-9]|1[0-2])\/([2-4][0-9]|5[0-5])$"
-                        Display="Dynamic"
-                        CssClass="text-danger"
-                        ValidationGroup="CardPayment"></asp:RegularExpressionValidator>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding:4px 8px;">Security code</td>
-                <td style="padding:4px 8px;">
-                    <asp:TextBox ID="txtCvv" runat="server" MaxLength="4"></asp:TextBox>
-                    <asp:RegularExpressionValidator ID="revCvv" runat="server"
-                        ControlToValidate="txtCvv"
-                        ErrorMessage="Enter a 3 or 4 digit code"
-                        ValidationExpression="^[0-9]{3,4}$"
-                        Display="Dynamic"
-                        CssClass="text-danger"
-                        ValidationGroup="CardPayment"></asp:RegularExpressionValidator>
-                </td>
-            </tr>
-            <tr>
-                <td style="padding:4px 8px;">Billing address</td>
-                <td style="padding:4px 8px;">
-                    <asp:TextBox ID="txtBillingAddress" runat="server" Width="260px"></asp:TextBox>
-                    <asp:RequiredFieldValidator ID="rfvBillingAddress" runat="server"
-                        ControlToValidate="txtBillingAddress"
-                        ErrorMessage="Billing address is required"
-                        Display="Dynamic"
-                        CssClass="text-danger"
-                        ValidationGroup="CardPayment"></asp:RequiredFieldValidator>
-                </td>
-            </tr>
-        </table>
-    </asp:Panel>
-
-    <div style="margin-top:16px;">
-        <asp:Button ID="btnPay" runat="server" Text="Pay now" CssClass="btn btn-warning"
-            OnClick="btnPay_Click" ValidationGroup="CardPayment" />
-    </div>
+        <div class="button-row">
+            <asp:Button ID="btnPay" runat="server" Text="Record payment"
+                CssClass="button button-primary" OnClick="btnPay_Click" />
+        </div>
+    </section>
 </asp:Content>

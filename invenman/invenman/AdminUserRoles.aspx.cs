@@ -65,9 +65,9 @@ namespace invenman
                     }
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to load users. Detail: " + ex.Message;
+                lblError.Text = "Unable to load users.";
             }
         }
 
@@ -105,15 +105,19 @@ namespace invenman
             string newEmail = (txtEmailEdit == null) ? "" : (txtEmailEdit.Text ?? "").Trim();
             string newPassword = (txtPasswordEdit == null) ? "" : (txtPasswordEdit.Text ?? "");
 
-            if (string.IsNullOrWhiteSpace(newUsername))
+            if (string.IsNullOrWhiteSpace(newUsername) ||
+                newUsername.Length > 100 ||
+                newEmail.Length > 255 ||
+                !IsAllowedRole(newRole))
             {
-                lblError.Text = "Username cannot be empty.";
+                lblError.Text = "Review the username, email, and role.";
                 return;
             }
 
-            if (!string.IsNullOrEmpty(newPassword) && newPassword.Length < 12)
+            if (!string.IsNullOrEmpty(newPassword) &&
+                (newPassword.Length < 12 || newPassword.Length > 256))
             {
-                lblError.Text = "New passwords must contain at least 12 characters.";
+                lblError.Text = "New passwords must contain 12 to 256 characters.";
                 return;
             }
 
@@ -168,9 +172,9 @@ WHERE UserID = @UserID", conn))
                     lblMessage.Text = rows > 0 ? "User updated successfully." : "No changes were saved.";
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to update user. Detail: " + ex.Message;
+                lblError.Text = "Unable to update user.";
             }
         }
 
@@ -207,9 +211,9 @@ WHERE UserID = @UserID", conn))
                     lblMessage.Text = rows > 0 ? "User deleted successfully." : "User not found.";
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to delete user. Detail: " + ex.Message;
+                lblError.Text = "Unable to delete user.";
             }
         }
 
@@ -228,15 +232,19 @@ WHERE UserID = @UserID", conn))
             string email = (txtNewEmail.Text ?? "").Trim();
             bool isActive = chkNewActive.Checked;
 
-            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+            if (string.IsNullOrWhiteSpace(username) ||
+                string.IsNullOrWhiteSpace(password) ||
+                username.Length > 100 ||
+                email.Length > 255 ||
+                !IsAllowedRole(role))
             {
-                lblError.Text = "Username and password are required.";
+                lblError.Text = "Review the username, email, password, and role.";
                 return;
             }
 
-            if (password.Length < 12)
+            if (password.Length < 12 || password.Length > 256)
             {
-                lblError.Text = "Passwords must contain at least 12 characters.";
+                lblError.Text = "Passwords must contain 12 to 256 characters.";
                 return;
             }
 
@@ -274,10 +282,17 @@ VALUES (@Username, @UserPassword, @RoleName, @IsActive, NULLIF(@Email, ''))", co
                     lblMessage.Text = "User created successfully.";
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to create user. Detail: " + ex.Message;
+                lblError.Text = "Unable to create user.";
             }
+        }
+
+        private static bool IsAllowedRole(string role)
+        {
+            return string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "Staff", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
         }
 
         protected void gvUsers_RowDataBound(object sender, GridViewRowEventArgs e)

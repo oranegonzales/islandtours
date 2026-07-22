@@ -6,6 +6,8 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Web.UI;
+using invenman.Configuration;
+using invenman.Security;
 
 namespace invenman
 {
@@ -39,10 +41,20 @@ namespace invenman
             }
 
             string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
+            bool isClient = string.Equals(
+                Session["Role"] as string,
+                "Client",
+                StringComparison.OrdinalIgnoreCase);
+            int? clientId = isClient ? ClientIdentity.GetClientId(this) : null;
+            if (isClient && !clientId.HasValue)
+            {
+                ShowError("Your account is not linked to a client profile.");
+                return;
+            }
 
             try
             {
-                ReceiptRow row = GetReceiptRow(connStr, paymentId);
+                ReceiptRow row = GetReceiptRow(connStr, paymentId, clientId);
                 if (row == null)
                 {
                     ShowError("No receipt data was found for that payment.");
@@ -83,9 +95,9 @@ namespace invenman
 
                 pnlReceipt.Visible = true;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                ShowError("There was a problem loading the receipt. Detail: " + ex.Message);
+                ShowError("There was a problem loading the receipt.");
             }
         }
 
@@ -99,7 +111,7 @@ namespace invenman
         {
             try
             {
-                string apiKey = ConfigurationManager.AppSettings["FixerApiKey"];
+                string apiKey = AppConfiguration.GetFixerApiKey();
                 if (string.IsNullOrWhiteSpace(apiKey))
                 {
                     return "USD conversion not configured";
@@ -196,7 +208,7 @@ namespace invenman
             return parsed;
         }
 
-        private ReceiptRow GetReceiptRow(string connStr, int paymentId)
+        private ReceiptRow GetReceiptRow(string connStr, int paymentId, int? clientId)
         {
             using (SqlConnection conn = new SqlConnection(connStr))
             using (SqlCommand cmd = new SqlCommand(@"
@@ -218,9 +230,12 @@ SELECT
 FROM Payments p
 INNER JOIN Bookings b ON p.BookingID = b.BookingID
 INNER JOIN Clients c ON b.ClientID = c.ClientID
-WHERE p.PaymentID = @PaymentID", conn))
+WHERE p.PaymentID = @PaymentID
+  AND (@ClientID IS NULL OR b.ClientID = @ClientID)", conn))
             {
                 cmd.Parameters.Add("@PaymentID", SqlDbType.Int).Value = paymentId;
+                cmd.Parameters.Add("@ClientID", SqlDbType.Int).Value =
+                    clientId.HasValue ? (object)clientId.Value : DBNull.Value;
 
                 conn.Open();
                 using (SqlDataReader r = cmd.ExecuteReader())

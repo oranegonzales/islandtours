@@ -41,9 +41,9 @@ namespace invenman
                 LoadAll();
                 lblMsg.Text = "Settings saved successfully.";
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                lblMsg.Text = "Unable to save settings. Detail: " + ex.Message;
+                lblMsg.Text = "Unable to save settings.";
             }
         }
 
@@ -69,15 +69,15 @@ namespace invenman
             }
             ddlRounding.SelectedValue = rounding;
 
-            txtCompanyName.Text = GetString("CompanyName", "IslandExplore Jamaica Tours");
-            txtSupportEmail.Text = GetString("SupportEmail", "support@islandexplore.jm");
-            txtSupportPhone.Text = GetString("SupportPhone", "+1 (876) 555-0199");
+            txtCompanyName.Text = GetString("CompanyName", "IslandExplore Tours");
+            txtSupportEmail.Text = GetString("SupportEmail", "");
+            txtSupportPhone.Text = GetString("SupportPhone", "");
 
             txtCashInstructions.Text = GetString("CashPaymentInstructions",
-                "Bring your email address or order number.\r\nCash payments accepted at:\r\nIslandExplore Jamaica Tours\r\n12 Ocean View Road, Kingston, Jamaica\r\nMon-Fri 9:00 AM to 4:00 PM");
+                "Contact the operations team for the current office location and hours. Bring your booking number.");
 
             txtBankInstructions.Text = GetString("BankTransferInstructions",
-                "Bank: Bank of Nova Scotia Jamaica\r\nAccount Name: IslandExplore Jamaica Tours\r\nAccount Number: 011234567890\r\nBranch: New Kingston\r\nSWIFT: NOSCJMKN\r\nReference: Your booking ID or email\r\nSend proof of payment to SupportEmail.");
+                "Request current transfer instructions from the operations team. Include your booking number as the reference.");
 
             txtTransportProviders.Text = NormalizeLines(GetString("TransportProviders",
                 "JUTA Taxi\r\nKnutsford Express\r\nIsland Routes\r\nPrivate Driver"));
@@ -190,9 +190,9 @@ namespace invenman
 
                 return server + " | " + db;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                return "Unable to read connection info. Detail: " + ex.Message;
+                return "Unable to read connection information.";
             }
         }
     }

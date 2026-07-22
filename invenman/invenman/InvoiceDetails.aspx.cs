@@ -7,6 +7,8 @@ using System.IO;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Web.Script.Serialization;
+using invenman.Configuration;
+using invenman.Security;
 
 namespace invenman
 {
@@ -239,49 +241,25 @@ namespace invenman
 
         private int? GetClientIdForCurrentUser()
         {
-            string username = Session["Username"] as string;
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                return null;
-            }
-
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT TOP 1 ClientID FROM Clients " +
-                "WHERE Email = @Identifier " +
-                "OR LEFT(Email, CHARINDEX('@', Email + '@') - 1) = @Identifier",
-                conn))
-            {
-                cmd.Parameters.Add("@Identifier", SqlDbType.VarChar, 255).Value = username;
-
-                conn.Open();
-                object result = cmd.ExecuteScalar();
-
-                if (result == null || result == DBNull.Value)
-                {
-                    return null;
-                }
-
-                return Convert.ToInt32(result);
-            }
+            return ClientIdentity.GetClientId(this);
         }
 
         private decimal? GetJmdToUsdRate()
         {
-            string apiKey = ConfigurationManager.AppSettings["FixerApiKey"];
+            string apiKey = AppConfiguration.GetFixerApiKey();
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 return null;
             }
 
-            string url = "https://data.fixer.io/api/latest?access_key=" + apiKey + "&symbols=USD,JMD";
+            string url = "https://data.fixer.io/api/latest?access_key=" + Uri.EscapeDataString(apiKey) + "&symbols=USD,JMD";
 
             try
             {
                 HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
                 request.Method = "GET";
+                request.Timeout = 5000;
+                request.ReadWriteTimeout = 5000;
                 using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
                 using (Stream stream = response.GetResponseStream())
                 using (StreamReader reader = new StreamReader(stream))

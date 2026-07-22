@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install .NET 10 SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v3
+        with:
+          msbuild-architecture: x64
+
+      - name: Restore Web Forms packages
+        run: msbuild invenman/invenman.sln /t:Restore /p:RestorePackagesConfig=true
+
+      - name: Build Web Forms application
+        run: msbuild invenman/invenman.sln /m /p:Configuration=Release
+
+      - name: Test scheduling engine
+        run: dotnet test tests/IslandTours.Scheduling.Tests/IslandTours.Scheduling.Tests.csproj --configuration Release
+
+      - name: Compile benchmarks
+        run: dotnet build benchmarks/IslandTours.Scheduling.Benchmarks/IslandTours.Scheduling.Benchmarks.csproj --configuration Release

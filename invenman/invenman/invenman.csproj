@@ -15,6 +15,7 @@
     <RootNamespace>invenman</RootNamespace>
     <AssemblyName>invenman</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <LangVersion>latest</LangVersion>
     <UseIISExpress>true</UseIISExpress>
     <Use64BitIISExpress />
     <IISExpressSSLPort>44357</IISExpressSSLPort>
@@ -373,6 +374,13 @@
     <Compile Include="Default.aspx.designer.cs">
       <DependentUpon>Default.aspx</DependentUpon>
     </Compile>
+    <Compile Include="Configuration\AppConfiguration.cs" />
+    <Compile Include="Security\AuthSecurity.cs" />
+    <Compile Include="Security\AuthorizationRules.cs" />
+    <Compile Include="Security\ClientIdentity.cs" />
+    <Compile Include="Security\PasswordSecurity.cs" />
+    <Compile Include="Security\UserAuthentication.cs" />
+    <Compile Include="Services\TransportationPlanningService.cs" />
     <Compile Include="Global.asax.cs">
       <DependentUpon>Global.asax</DependentUpon>
     </Compile>
@@ -507,6 +515,12 @@
   </ItemGroup>
   <ItemGroup>
     <WCFMetadata Include="Connected Services\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\IslandTours.Scheduling\IslandTours.Scheduling.csproj">
+      <Project>{BE8D285C-8A99-4DA0-95D4-419673BB7C8C}</Project>
+      <Name>IslandTours.Scheduling</Name>
+    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
