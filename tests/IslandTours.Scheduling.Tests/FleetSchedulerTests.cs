@@ -13,7 +13,10 @@ public sealed class FleetSchedulerTests
         var request = new TourRequest(1, 12, "Kingston", "Ocho Rios", Day.AddHours(8), Day.AddHours(12));
         var vehicle = new FleetVehicle(1, "Blue Route", 8, "Kingston");
 
-        ScheduleResult result = scheduler.Plan(\n            new[] { request },\n            new[] { vehicle },\n            TestContext.Current.CancellationToken);
+        ScheduleResult result = scheduler.Plan(
+            new[] { request },
+            new[] { vehicle },
+            TestContext.Current.CancellationToken);
 
         Assert.Empty(result.Assignments);
         UnscheduledTour unscheduled = Assert.Single(result.Unscheduled);
@@ -38,7 +41,10 @@ public sealed class FleetSchedulerTests
             new TourRequest(2, 4, "Montego Bay", "Kingston", Day.AddHours(11), Day.AddHours(14))
         };
 
-        ScheduleResult result = scheduler.Plan(\n            requests,\n            new[] { vehicle },\n            TestContext.Current.CancellationToken);
+        ScheduleResult result = scheduler.Plan(
+            requests,
+            new[] { vehicle },
+            TestContext.Current.CancellationToken);
 
         Assert.Single(result.Assignments);
         Assert.Single(result.Unscheduled);
@@ -60,7 +66,10 @@ public sealed class FleetSchedulerTests
             new FleetVehicle(2, "Small Shuttle", 2, "B")
         };
 
-        ScheduleResult result = new FleetScheduler(graph).Plan(\n            requests,\n            vehicles,\n            TestContext.Current.CancellationToken);
+        ScheduleResult result = new FleetScheduler(graph).Plan(
+            requests,
+            vehicles,
+            TestContext.Current.CancellationToken);
 
         Assert.True(result.UsedExactSearch);
         Assert.Empty(result.Unscheduled);
@@ -88,8 +97,14 @@ public sealed class FleetSchedulerTests
                 Day.AddDays(index).AddHours(12)))
             .ToArray();
 
-        ScheduleResult first = scheduler.Plan(requests, vehicles);
-        ScheduleResult second = scheduler.Plan(requests.Reverse(), vehicles.Reverse());
+        ScheduleResult first = scheduler.Plan(
+            requests,
+            vehicles,
+            TestContext.Current.CancellationToken);
+        ScheduleResult second = scheduler.Plan(
+            requests.Reverse(),
+            vehicles.Reverse(),
+            TestContext.Current.CancellationToken);
 
         Assert.False(first.UsedExactSearch);
         Assert.Equal(
