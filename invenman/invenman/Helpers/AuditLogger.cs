@@ -1,6 +1,8 @@
-﻿using System;
+using System;
 using System.Configuration;
+using System.Data;
 using System.Data.SqlClient;
+using System.Diagnostics;
 using System.Web;
 using System.Web.UI;
 
@@ -10,110 +12,86 @@ namespace invenman
     {
         public static void Log(Page page, string actionType, string details)
         {
-            if (page == null)
-            {
-                return;
-            }
-
+            if (page == null) return;
             string username = page.Session["Username"] as string;
             string role = page.Session["Role"] as string;
-
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                username = "Guest";
-            }
-
-            if (string.IsNullOrWhiteSpace(role))
-            {
-                role = "Guest";
-            }
-
-            string pageUrl = "";
+            string pageUrl = string.Empty;
             try
             {
-                pageUrl = page.Request.RawUrl ?? "";
+                pageUrl = page.Request.RawUrl ?? string.Empty;
             }
-            catch
+            catch (HttpException)
             {
-                pageUrl = "";
+                pageUrl = string.Empty;
             }
-
             WriteLog(username, role, actionType, pageUrl, details);
         }
 
         public static void LogFromHttpContext(HttpContext context, string actionType, string details)
         {
-            if (context == null)
-            {
-                return;
-            }
-
-            string username = context.Session == null ? "" : (context.Session["Username"] as string);
-            string role = context.Session == null ? "" : (context.Session["Role"] as string);
-
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                username = "Guest";
-            }
-
-            if (string.IsNullOrWhiteSpace(role))
-            {
-                role = "Guest";
-            }
-
-            string pageUrl = context.Request == null ? "" : (context.Request.RawUrl ?? "");
+            if (context == null) return;
+            string username = context.Session == null ? null : context.Session["Username"] as string;
+            string role = context.Session == null ? null : context.Session["Role"] as string;
+            string pageUrl = context.Request == null ? string.Empty : context.Request.RawUrl;
             WriteLog(username, role, actionType, pageUrl, details);
         }
 
-        private static void WriteLog(string username, string role, string actionType, string pageUrl, string details)
+        private static void WriteLog(
+            string username,
+            string role,
+            string actionType,
+            string pageUrl,
+            string details)
         {
-            string connStr = GetConnStr();
-            if (string.IsNullOrWhiteSpace(connStr))
+            string connectionString = GetConnectionString();
+            if (string.IsNullOrWhiteSpace(connectionString)) return;
+
+            username = Clean(username, 100, "Guest");
+            role = Clean(role, 50, "Guest");
+            actionType = Clean(actionType, 100, "System");
+            pageUrl = Clean(pageUrl, 500, string.Empty);
+            details = Clean(details, 4000, string.Empty);
+
+            try
             {
-                return;
+                using (SqlConnection connection = new SqlConnection(connectionString))
+                using (SqlCommand command = new SqlCommand(@"
+INSERT INTO dbo.AuditLogs
+    (LogDate, Username, RoleName, ActionType, PageUrl, Details)
+VALUES
+    (SYSUTCDATETIME(), @Username, @RoleName, @ActionType, @PageUrl, @Details);", connection))
+                {
+                    command.Parameters.Add("@Username", SqlDbType.NVarChar, 100).Value = username;
+                    command.Parameters.Add("@RoleName", SqlDbType.NVarChar, 50).Value = role;
+                    command.Parameters.Add("@ActionType", SqlDbType.NVarChar, 100).Value = actionType;
+                    command.Parameters.Add("@PageUrl", SqlDbType.NVarChar, 500).Value = pageUrl;
+                    command.Parameters.Add("@Details", SqlDbType.NVarChar, 4000).Value = details;
+                    connection.Open();
+                    command.ExecuteNonQuery();
+                }
             }
-
-            if (string.IsNullOrWhiteSpace(actionType))
+            catch (SqlException ex)
             {
-                actionType = "System";
-            }
-
-            if (details == null)
-            {
-                details = "";
-            }
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(@"
-INSERT INTO AuditLogs (LogDate, Username, RoleName, ActionType, PageUrl, Details)
-VALUES (GETDATE(), @Username, @RoleName, @ActionType, @PageUrl, @Details)", conn))
-            {
-                cmd.Parameters.AddWithValue("@Username", username);
-                cmd.Parameters.AddWithValue("@RoleName", role);
-                cmd.Parameters.AddWithValue("@ActionType", actionType);
-                cmd.Parameters.AddWithValue("@PageUrl", pageUrl ?? "");
-                cmd.Parameters.AddWithValue("@Details", details);
-
-                conn.Open();
-                cmd.ExecuteNonQuery();
+                Trace.TraceWarning("Audit write failed with SQL error {0}.", ex.Number);
             }
         }
 
-        private static string GetConnStr()
+        private static string Clean(string value, int maximumLength, string fallback)
         {
-            ConnectionStringSettings cs = ConfigurationManager.ConnectionStrings["TravelTime"];
-            if (cs != null && !string.IsNullOrWhiteSpace(cs.ConnectionString))
-            {
-                return cs.ConnectionString;
-            }
+            string cleaned = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+            cleaned = cleaned.Replace("\r", " ").Replace("\n", " ");
+            return cleaned.Length <= maximumLength
+                ? cleaned
+                : cleaned.Substring(0, maximumLength);
+        }
 
-            cs = ConfigurationManager.ConnectionStrings["TravelTimeDb"];
-            if (cs != null && !string.IsNullOrWhiteSpace(cs.ConnectionString))
-            {
-                return cs.ConnectionString;
-            }
-
-            return "";
+        private static string GetConnectionString()
+        {
+            ConnectionStringSettings settings = ConfigurationManager.ConnectionStrings["TravelTime"];
+            if (settings != null && !string.IsNullOrWhiteSpace(settings.ConnectionString))
+                return settings.ConnectionString;
+            settings = ConfigurationManager.ConnectionStrings["TravelTimeDb"];
+            return settings == null ? string.Empty : settings.ConnectionString;
         }
     }
 }

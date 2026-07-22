@@ -1,8 +1,10 @@
-﻿using System;
+using System;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Globalization;
 using System.Web.UI;
+using invenman.Security;
 
 namespace invenman
 {
@@ -10,92 +12,60 @@ namespace invenman
     {
         protected void Page_Load(object sender, EventArgs e)
         {
-            if (!IsPostBack)
-            {
-                BindPayments();
-            }
+            if (!IsPostBack) BindPayments();
         }
 
         private void BindPayments()
         {
-            gvPayments.DataSource = null;
-            gvPayments.DataBind();
-            lblError.Text = "";
-
-            string username = Session["Username"] as string;
-            string role = Session["Role"] as string;
-
-            if (string.IsNullOrWhiteSpace(username))
+            bool isClient = string.Equals(
+                Session["Role"] as string,
+                "Client",
+                StringComparison.OrdinalIgnoreCase);
+            int? clientId = isClient ? ClientIdentity.GetClientId(this) : null;
+            if (isClient && !clientId.HasValue)
             {
-                lblError.Text = "You must be logged in to view payments.";
+                gvPayments.DataSource = null;
+                gvPayments.DataBind();
+                lblError.Text = "Your account is not linked to a client profile.";
                 return;
             }
 
-            bool isStaff = !string.IsNullOrWhiteSpace(role) &&
-                           !role.Equals("Client", StringComparison.OrdinalIgnoreCase);
-
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
+            const string sql = @"
+SELECT TOP (500)
+       p.PaymentID,
+       p.PaymentDate,
+       c.FirstName + N' ' + c.LastName AS ClientName,
+       p.Amount AS AmountJMD,
+       p.PaymentMethod,
+       p.CurrencyCode
+FROM dbo.Payments AS p
+INNER JOIN dbo.Bookings AS b ON b.BookingID=p.BookingID
+INNER JOIN dbo.Clients AS c ON c.ClientID=b.ClientID
+WHERE (@ClientID IS NULL OR b.ClientID=@ClientID)
+ORDER BY p.PaymentDate DESC, p.PaymentID DESC;";
 
             try
             {
-                using (SqlConnection conn = new SqlConnection(connStr))
-                using (SqlCommand cmd = new SqlCommand())
+                using (SqlConnection connection = new SqlConnection(
+                    ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString))
+                using (SqlCommand command = new SqlCommand(sql, connection))
                 {
-                    cmd.Connection = conn;
-
-                    if (isStaff)
+                    command.Parameters.Add("@ClientID", SqlDbType.Int).Value =
+                        clientId.HasValue ? (object)clientId.Value : DBNull.Value;
+                    var table = new DataTable();
+                    using (var adapter = new SqlDataAdapter(command))
                     {
-                        cmd.CommandText = @"
-SELECT
-    p.PaymentID,
-    p.PaymentDate,
-    c.FirstName + ' ' + c.LastName AS ClientName,
-    p.Amount AS AmountJMD,
-    p.PaymentMethod,
-    p.CurrencyCode
-FROM Payments p
-INNER JOIN Bookings b ON p.BookingID = b.BookingID
-INNER JOIN Clients c ON b.ClientID = c.ClientID
-ORDER BY p.PaymentDate DESC";
+                        adapter.Fill(table);
                     }
-                    else
-                    {
-                        cmd.CommandText = @"
-SELECT
-    p.PaymentID,
-    p.PaymentDate,
-    c.FirstName + ' ' + c.LastName AS ClientName,
-    p.Amount AS AmountJMD,
-    p.PaymentMethod,
-    p.CurrencyCode
-FROM Payments p
-INNER JOIN Bookings b ON p.BookingID = b.BookingID
-INNER JOIN Clients c ON b.ClientID = c.ClientID
-INNER JOIN Users u ON u.Email = c.Email
-WHERE u.Username = @Username
-ORDER BY p.PaymentDate DESC";
-
-                        cmd.Parameters.Add("@Username", SqlDbType.VarChar, 100).Value = username;
-                    }
-
-                    using (SqlDataAdapter da = new SqlDataAdapter(cmd))
-                    {
-                        DataTable dt = new DataTable();
-                        da.Fill(dt);
-
-                        if (dt.Rows.Count == 0)
-                        {
-                            lblError.Text = "No payments found.";
-                        }
-
-                        gvPayments.DataSource = dt;
-                        gvPayments.DataBind();
-                    }
+                    gvPayments.DataSource = table;
+                    gvPayments.DataBind();
+                    lblError.Text = table.Rows.Count == 0 ? "No payments found." : string.Empty;
                 }
             }
-            catch (Exception ex)
+            catch (SqlException ex)
             {
-                lblError.Text = "Unable to load payments at this time. Detail: " + ex.Message;
+                AuditLogger.Log(this, "PaymentHistoryFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                lblError.Text = "Payment history could not be loaded.";
             }
         }
     }

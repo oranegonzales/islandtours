@@ -1,7 +1,11 @@
-﻿using System;
+using System;
 using System.Configuration;
+using System.Data;
 using System.Data.SqlClient;
+using System.Globalization;
 using System.Web.UI;
+using System.Web.UI.WebControls;
+using invenman.Security;
 
 namespace invenman
 {
@@ -9,223 +13,274 @@ namespace invenman
     {
         protected void Page_Load(object sender, EventArgs e)
         {
+            bool canRecord = AuthorizationRules.IsStaffOrAdmin(Session["Role"] as string);
+            lblMode.Text = canRecord
+                ? "Record a payment already completed through the office, bank, or card terminal."
+                : "Review the payment options for your booking. Online card collection is not enabled.";
+            btnPay.Visible = canRecord;
+            txtTransactionReference.Enabled = canRecord;
+
             if (!IsPostBack)
             {
+                BindMethods(canRecord);
                 LoadBookings();
-                ddlPaymentMethod.SelectedValue = "Card";
-                ApplyPaymentMethodRules();
+                ApplyPaymentMethodRules(canRecord);
             }
         }
 
-        private string GetConnectionString()
+        private void BindMethods(bool canRecord)
         {
-            var cs = ConfigurationManager.ConnectionStrings["TravelTime"];
-            if (cs != null && !string.IsNullOrWhiteSpace(cs.ConnectionString))
+            ddlPaymentMethod.Items.Clear();
+            if (canRecord)
             {
-                return cs.ConnectionString;
+                ddlPaymentMethod.Items.Add(new ListItem("Card terminal", "Card terminal"));
+                ddlPaymentMethod.Items.Add(new ListItem("Cash at office", "Cash"));
+                ddlPaymentMethod.Items.Add(new ListItem("Bank transfer", "Bank transfer"));
             }
-
-            cs = ConfigurationManager.ConnectionStrings["TravelTimeDb"];
-            if (cs != null && !string.IsNullOrWhiteSpace(cs.ConnectionString))
+            else
             {
-                return cs.ConnectionString;
+                ddlPaymentMethod.Items.Add(new ListItem("Bank transfer", "Bank transfer"));
+                ddlPaymentMethod.Items.Add(new ListItem("Cash at office", "Cash"));
             }
-
-            throw new InvalidOperationException("No TravelTime or TravelTimeDb connection string is defined.");
         }
 
         private void LoadBookings()
         {
             ddlBooking.Items.Clear();
-            ddlBooking.Items.Add(new System.Web.UI.WebControls.ListItem("Select a booking", ""));
+            ddlBooking.Items.Add(new ListItem("Select a booking", ""));
 
-            string connStr = GetConnectionString();
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand())
+            bool isClient = string.Equals(
+                Session["Role"] as string,
+                "Client",
+                StringComparison.OrdinalIgnoreCase);
+            int? clientId = isClient ? ClientIdentity.GetClientId(this) : null;
+            if (isClient && !clientId.HasValue)
             {
-                cmd.Connection = conn;
-
-                string sql =
-                    "SELECT b.BookingID, a.Name AS AttractionName, b.TourDate, b.TotalAmount " +
-                    "FROM Bookings b " +
-                    "INNER JOIN Attractions a ON b.AttractionID = a.AttractionID " +
-                    "ORDER BY b.TourDate DESC";
-
-                cmd.CommandText = sql;
-
-                conn.Open();
-                using (SqlDataReader rdr = cmd.ExecuteReader())
-                {
-                    while (rdr.Read())
-                    {
-                        int bookingId = rdr.GetInt32(0);
-                        string attractionName = rdr.GetString(1);
-                        DateTime tourDate = rdr.GetDateTime(2);
-                        decimal totalAmount = rdr.GetDecimal(3);
-
-                        string text = "Booking " + bookingId + " " + attractionName + " on " + tourDate.ToString("yyyy-MM-dd") + " Amount " + totalAmount.ToString("0.00");
-                        ddlBooking.Items.Add(new System.Web.UI.WebControls.ListItem(text, bookingId.ToString()));
-                    }
-                }
+                ShowError("Your account is not linked to a client profile.");
+                return;
             }
 
-            if (ddlBooking.Items.Count > 1)
+            const string sql = @"
+SELECT TOP (500)
+       b.BookingID,
+       a.Name,
+       b.TourDate,
+       b.TotalAmount -
+         COALESCE((SELECT SUM(p.Amount) FROM dbo.Payments AS p WHERE p.BookingID=b.BookingID), 0) +
+         COALESCE((SELECT SUM(r.RefundAmount)
+                   FROM dbo.Refunds AS r
+                   INNER JOIN dbo.Payments AS rp ON rp.PaymentID=r.PaymentID
+                   WHERE rp.BookingID=b.BookingID), 0) AS Outstanding
+FROM dbo.Bookings AS b
+INNER JOIN dbo.Attractions AS a ON a.AttractionID=b.AttractionID
+WHERE b.BookingStatus<>N'Cancelled'
+  AND (@ClientID IS NULL OR b.ClientID=@ClientID)
+ORDER BY b.TourDate DESC, b.BookingID DESC;";
+
+            using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+            using (SqlCommand command = new SqlCommand(sql, connection))
             {
-                ddlBooking.SelectedIndex = 1;
-                PrefillAmountFromBooking();
+                command.Parameters.Add("@ClientID", SqlDbType.Int).Value =
+                    clientId.HasValue ? (object)clientId.Value : DBNull.Value;
+                connection.Open();
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        decimal outstanding = Math.Max(0m, reader.GetDecimal(3));
+                        string text =
+                            "Booking " + reader.GetInt32(0).ToString(CultureInfo.InvariantCulture) +
+                            " · " + reader.GetString(1) +
+                            " · " + reader.GetDateTime(2).ToString("dd MMM yyyy", CultureInfo.InvariantCulture) +
+                            " · JMD " + outstanding.ToString("N2", CultureInfo.InvariantCulture);
+                        ddlBooking.Items.Add(new ListItem(text, reader.GetInt32(0).ToString(CultureInfo.InvariantCulture)));
+                    }
+                }
             }
         }
 
         protected void ddlBooking_SelectedIndexChanged(object sender, EventArgs e)
         {
-            PrefillAmountFromBooking();
-        }
-
-        private void PrefillAmountFromBooking()
-        {
-            txtAmount.Text = "";
-
-            if (string.IsNullOrWhiteSpace(ddlBooking.SelectedValue))
-            {
-                return;
-            }
-
-            int bookingId;
-            if (!int.TryParse(ddlBooking.SelectedValue, out bookingId))
-            {
-                return;
-            }
-
-            string connStr = GetConnectionString();
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand("SELECT TotalAmount FROM Bookings WHERE BookingID = @BookingID", conn))
-            {
-                cmd.Parameters.Add("@BookingID", System.Data.SqlDbType.Int).Value = bookingId;
-
-                conn.Open();
-                object result = cmd.ExecuteScalar();
-
-                if (result != null && result != DBNull.Value)
-                {
-                    decimal amount = Convert.ToDecimal(result);
-                    txtAmount.Text = amount.ToString("0.00");
-                }
-            }
+            PrefillOutstanding();
         }
 
         protected void ddlPaymentMethod_SelectedIndexChanged(object sender, EventArgs e)
         {
-            ApplyPaymentMethodRules();
+            ApplyPaymentMethodRules(AuthorizationRules.IsStaffOrAdmin(Session["Role"] as string));
         }
 
-        private void ApplyPaymentMethodRules()
+        private void PrefillOutstanding()
+        {
+            txtAmount.Text = string.Empty;
+            int bookingId;
+            if (!int.TryParse(ddlBooking.SelectedValue, out bookingId)) return;
+
+            int? clientId = IsClient() ? ClientIdentity.GetClientId(this) : null;
+            decimal? outstanding = GetOutstanding(bookingId, clientId, null);
+            if (outstanding.HasValue)
+            {
+                txtAmount.Text = Math.Max(0m, outstanding.Value).ToString("0.00", CultureInfo.InvariantCulture);
+            }
+        }
+
+        private void ApplyPaymentMethodRules(bool canRecord)
         {
             string method = ddlPaymentMethod.SelectedValue;
-
-            if (method == "Card")
+            pnlInstructions.Visible = true;
+            if (method == "Cash")
             {
-                txtAmount.Enabled = true;
-                txtAmount.ReadOnly = false;
-
-                rfvAmount.Enabled = true;
-                revAmount.Enabled = true;
-
-                pnlCardDetails.Visible = true;
-                pnlInstructions.Visible = false;
-
-                btnPay.Enabled = true;
+                lblInstructions.Text = "Pay at the office and quote the booking number shown above.";
             }
-            else if (method == "Cash")
+            else if (method == "Bank transfer")
             {
-                txtAmount.Enabled = false;
-                txtAmount.ReadOnly = true;
-
-                rfvAmount.Enabled = false;
-                revAmount.Enabled = false;
-
-                pnlCardDetails.Visible = false;
-                pnlInstructions.Visible = true;
-                lblInstructions.Text = "Please visit IslandExplore Jamaica Tours office at 10 King Street, Kingston. Bring your booking number and email address. Payment will be taken at the cashier.";
-
-                btnPay.Enabled = false;
+                lblInstructions.Text = "Use the bank details supplied by the operations team and include the booking number as the transfer reference.";
             }
-            else if (method == "Bank")
+            else
             {
-                txtAmount.Enabled = false;
-                txtAmount.ReadOnly = true;
-
-                rfvAmount.Enabled = false;
-                revAmount.Enabled = false;
-
-                pnlCardDetails.Visible = false;
-                pnlInstructions.Visible = true;
-                lblInstructions.Text = "Please send a bank transfer to Bank of Nova Scotia, Account name IslandExplore Jamaica Tours, Account number 123456789, Branch Half Way Tree. Include your booking number in the transfer reference.";
-
-                btnPay.Enabled = false;
+                lblInstructions.Text = "Use this only after the external card terminal has approved the transaction. Do not enter card numbers or security codes here.";
             }
+
+            txtAmount.Enabled = canRecord;
+            rfvAmount.Enabled = canRecord;
+            revAmount.Enabled = canRecord;
         }
 
         protected void btnPay_Click(object sender, EventArgs e)
         {
-            lblMessage.Text = "";
-            lblSuccess.Text = "";
-
-            if (!Page.IsValid)
+            if (!AuthorizationRules.IsStaffOrAdmin(Session["Role"] as string))
             {
-                lblMessage.Text = "Please correct the highlighted errors.";
+                ShowError("Staff or administrator access is required to record payments.");
                 return;
             }
-
-            if (ddlPaymentMethod.SelectedValue != "Card")
-            {
-                lblMessage.Text = "Online payment is only available for card payments.";
-                return;
-            }
-
-            if (string.IsNullOrWhiteSpace(ddlBooking.SelectedValue))
-            {
-                lblMessage.Text = "Please select a booking.";
-                return;
-            }
+            if (!Page.IsValid) return;
 
             int bookingId;
-            if (!int.TryParse(ddlBooking.SelectedValue, out bookingId))
-            {
-                lblMessage.Text = "Invalid booking selection.";
-                return;
-            }
-
             decimal amount;
-            if (!decimal.TryParse(txtAmount.Text.Trim(), out amount) || amount <= 0)
+            string method = ddlPaymentMethod.SelectedValue;
+            string reference = txtTransactionReference.Text.Trim();
+            if (!int.TryParse(ddlBooking.SelectedValue, out bookingId) ||
+                !decimal.TryParse(txtAmount.Text, NumberStyles.Number, CultureInfo.InvariantCulture, out amount) ||
+                amount <= 0 ||
+                (method != "Cash" && method != "Bank transfer" && method != "Card terminal") ||
+                reference.Length > 200 ||
+                (method != "Cash" && string.IsNullOrWhiteSpace(reference)))
             {
-                lblMessage.Text = "Enter a valid payment amount.";
+                ShowError("Choose a booking and enter a valid amount, method, and reference.");
                 return;
             }
 
-            string connStr = GetConnectionString();
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand())
+            try
             {
-                cmd.Connection = conn;
+                using (SqlConnection connection = new SqlConnection(GetConnectionString()))
+                {
+                    connection.Open();
+                    using (SqlTransaction transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+                    {
+                        decimal? outstanding = GetOutstanding(bookingId, null, transaction);
+                        if (!outstanding.HasValue || amount > outstanding.Value || outstanding.Value <= 0)
+                        {
+                            transaction.Rollback();
+                            ShowError("The amount exceeds the current balance or the booking is unavailable.");
+                            return;
+                        }
 
-                cmd.CommandText =
-                    "INSERT INTO Payments (BookingID, Amount, PaymentMethod, TransactionReference) " +
-                    "VALUES (@BookingID, @Amount, @PaymentMethod, @TransactionReference)";
+                        using (SqlCommand insert = new SqlCommand(@"
+INSERT INTO dbo.Payments
+    (BookingID, PaymentDate, Amount, PaymentMethod, TransactionReference, CurrencyCode)
+VALUES
+    (@BookingID, SYSUTCDATETIME(), @Amount, @PaymentMethod, NULLIF(@Reference, N''), 'JMD');",
+                            connection,
+                            transaction))
+                        {
+                            insert.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
+                            SqlParameter paymentAmount = insert.Parameters.Add("@Amount", SqlDbType.Decimal);
+                            paymentAmount.Precision = 18;
+                            paymentAmount.Scale = 2;
+                            paymentAmount.Value = amount;
+                            insert.Parameters.Add("@PaymentMethod", SqlDbType.NVarChar, 50).Value = method;
+                            insert.Parameters.Add("@Reference", SqlDbType.NVarChar, 200).Value = reference;
+                            insert.ExecuteNonQuery();
+                        }
 
-                cmd.Parameters.Add("@BookingID", System.Data.SqlDbType.Int).Value = bookingId;
-                cmd.Parameters.Add("@Amount", System.Data.SqlDbType.Decimal).Value = amount;
-                cmd.Parameters.Add("@PaymentMethod", System.Data.SqlDbType.VarChar, 50).Value = "Card";
-                cmd.Parameters.Add("@TransactionReference", System.Data.SqlDbType.VarChar, 200).Value = Guid.NewGuid().ToString("N");
+                        if (outstanding.Value - amount <= 0)
+                        {
+                            using (SqlCommand update = new SqlCommand(
+                                "UPDATE dbo.Bookings SET PaymentStatus=N'Paid' WHERE BookingID=@BookingID",
+                                connection,
+                                transaction))
+                            {
+                                update.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
+                                update.ExecuteNonQuery();
+                            }
+                        }
 
-                conn.Open();
-                cmd.ExecuteNonQuery();
+                        transaction.Commit();
+                    }
+                }
+
+                AuditLogger.Log(this, "PaymentRecorded", "Booking " + bookingId.ToString(CultureInfo.InvariantCulture));
+                lblMessage.CssClass = "notice notice-success";
+                lblMessage.Text = "Payment recorded.";
+                txtTransactionReference.Text = string.Empty;
+                LoadBookings();
             }
+            catch (SqlException ex)
+            {
+                AuditLogger.Log(this, "PaymentRecordFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                ShowError("The payment could not be recorded.");
+            }
+        }
 
-            lblSuccess.Text = "Payment approved.";
-            lblMessage.Text = "";
+        private decimal? GetOutstanding(int bookingId, int? clientId, SqlTransaction transaction)
+        {
+            const string sql = @"
+SELECT b.TotalAmount -
+       COALESCE((SELECT SUM(p.Amount) FROM dbo.Payments AS p WHERE p.BookingID=b.BookingID), 0) +
+       COALESCE((SELECT SUM(r.RefundAmount)
+                 FROM dbo.Refunds AS r
+                 INNER JOIN dbo.Payments AS rp ON rp.PaymentID=r.PaymentID
+                 WHERE rp.BookingID=b.BookingID), 0)
+FROM dbo.Bookings AS b WITH (UPDLOCK, ROWLOCK)
+WHERE b.BookingID=@BookingID
+  AND b.BookingStatus<>N'Cancelled'
+  AND (@ClientID IS NULL OR b.ClientID=@ClientID);";
+
+            SqlConnection connection = transaction == null
+                ? new SqlConnection(GetConnectionString())
+                : transaction.Connection;
+            bool ownsConnection = transaction == null;
+            try
+            {
+                using (SqlCommand command = new SqlCommand(sql, connection, transaction))
+                {
+                    command.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
+                    command.Parameters.Add("@ClientID", SqlDbType.Int).Value =
+                        clientId.HasValue ? (object)clientId.Value : DBNull.Value;
+                    if (ownsConnection) connection.Open();
+                    object value = command.ExecuteScalar();
+                    return value == null || value == DBNull.Value ? (decimal?)null : Convert.ToDecimal(value);
+                }
+            }
+            finally
+            {
+                if (ownsConnection) connection.Dispose();
+            }
+        }
+
+        private bool IsClient()
+        {
+            return string.Equals(Session["Role"] as string, "Client", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetConnectionString()
+        {
+            return ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
+        }
+
+        private void ShowError(string message)
+        {
+            lblMessage.CssClass = "notice notice-error";
+            lblMessage.Text = message;
         }
     }
 }

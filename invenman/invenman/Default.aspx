@@ -1,20 +1,30 @@
-﻿<%@ Page Title="Dashboard" Language="C#" MasterPageFile="~/Site.Master" AutoEventWireup="true" CodeBehind="Default.aspx.cs" Inherits="invenman._Default" %>
+<%@ Page Title="Overview" Language="C#" MasterPageFile="~/Site.Master" AutoEventWireup="true" CodeBehind="Default.aspx.cs" Inherits="invenman._Default" %>
 
 <asp:Content ID="Content1" ContentPlaceHolderID="MainContent" runat="server">
-    <h1>Dashboard</h1>
-    <p>Today is <%: DateTime.Now.ToString("dddd, MMMM d, yyyy") %>.</p>
+    <section class="page-heading">
+        <div>
+            <span class="eyebrow">Operations overview</span>
+            <h1>Plan the day’s tours.</h1>
+            <p class="page-intro"><%: DateTime.Now.ToString("dddd, d MMMM yyyy") %></p>
+        </div>
+    </section>
 
-    <h2>Inventory Snapshot</h2>
-    <ul>
-        <li>Total products: 128</li>
-        <li>Low stock items: 7</li>
-        <li>Last backup: Yesterday 6:00 PM</li>
-    </ul>
-
-    <h2>System Notices</h2>
-    <ul>
-        <li>Use consistent product names.</li>
-        <li>Verify unit numbers before saving.</li>
-        <li>Each user should use their own account.</li>
-    </ul>
+    <section class="overview-grid">
+        <a runat="server" href="~/BookingUpcomingTours.aspx">
+            <span>Bookings</span>
+            <strong>Review upcoming tours</strong>
+        </a>
+        <a runat="server" href="~/BookingAssignTransportation.aspx">
+            <span>Transportation</span>
+            <strong>Plan vehicle assignments</strong>
+        </a>
+        <a runat="server" href="~/PaymentHistory.aspx">
+            <span>Payments</span>
+            <strong>Reconcile payment history</strong>
+        </a>
+        <a runat="server" href="~/ReportsSales.aspx">
+            <span>Reporting</span>
+            <strong>Examine sales performance</strong>
+        </a>
+    </section>
 </asp:Content>

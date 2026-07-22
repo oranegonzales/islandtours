@@ -2,6 +2,9 @@
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Globalization;
+using invenman.Services;
+using invenman.Security;
 
 namespace invenman
 {
@@ -11,10 +14,20 @@ namespace invenman
         {
             string role = GetCurrentRole();
             bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
+            bool canManage = CanManageTransportation(role);
+
+            if (!isClient && !canManage)
+            {
+                Response.Redirect("~/Login.aspx", false);
+                Context.ApplicationInstance.CompleteRequest();
+                return;
+            }
 
             if (!IsPostBack)
             {
-                lblMode.Text = isClient ? "Client view of assigned transportation for your bookings" : "Staff or admin view to assign transportation for upcoming bookings";
+                lblMode.Text = isClient
+                    ? "Review pickup details for your upcoming bookings."
+                    : "Assign individual vehicles or plan the next 30 days as a fleet.";
                 ConfigureUiForRole(isClient);
                 BindGrid(isClient);
             }
@@ -35,6 +48,12 @@ namespace invenman
             return role;
         }
 
+        private static bool CanManageTransportation(string role)
+        {
+            return string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(role, "Staff", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void ConfigureUiForRole(bool isClient)
         {
             if (isClient)
@@ -44,6 +63,7 @@ namespace invenman
                     gvBookings.Columns[0].Visible = false;
                 }
                 pnlStaffEditor.Visible = false;
+                pnlPlanningTools.Visible = false;
             }
             else
             {
@@ -52,38 +72,13 @@ namespace invenman
                     gvBookings.Columns[0].Visible = true;
                 }
                 pnlStaffEditor.Visible = true;
+                pnlPlanningTools.Visible = true;
             }
         }
 
         private int? GetClientIdForCurrentUser()
         {
-            string username = Session["Username"] as string;
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                return null;
-            }
-
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT TOP 1 ClientID FROM Clients " +
-                "WHERE Email = @Identifier " +
-                "OR LEFT(Email, CHARINDEX('@', Email + '@') - 1) = @Identifier",
-                conn))
-            {
-                cmd.Parameters.Add("@Identifier", SqlDbType.VarChar, 255).Value = username;
-
-                conn.Open();
-                object result = cmd.ExecuteScalar();
-
-                if (result == null || result == DBNull.Value)
-                {
-                    return null;
-                }
-
-                return Convert.ToInt32(result);
-            }
+            return ClientIdentity.GetClientId(this);
         }
 
         private void BindGrid(bool isClient)
@@ -114,8 +109,8 @@ namespace invenman
 
             using (SqlConnection conn = new SqlConnection(connStr))
             using (SqlCommand cmd = new SqlCommand(
-                "SELECT b.BookingID, b.TourDate, c.FirstName + ' ' + c.LastName AS ClientName, " +
-                "a.Name AS AttractionName, a.Parish, b.TransportProvider, b.PickupLocation, " +
+                "SELECT TOP (500) b.BookingID, b.TourDate, c.FirstName + ' ' + c.LastName AS ClientName, " +
+                "a.Name AS AttractionName, a.Parish, b.PartySize, b.TransportProvider, b.PickupLocation, " +
                 "b.PickupDateTime, b.BookingStatus " +
                 "FROM Bookings b " +
                 "INNER JOIN Clients c ON b.ClientID = c.ClientID " +
@@ -155,8 +150,8 @@ namespace invenman
 
             using (SqlConnection conn = new SqlConnection(connStr))
             using (SqlCommand cmd = new SqlCommand(
-                "SELECT b.BookingID, b.TourDate, c.FirstName + ' ' + c.LastName AS ClientName, " +
-                "a.Name AS AttractionName, a.Parish, b.TransportProvider, b.PickupLocation, " +
+                "SELECT TOP (500) b.BookingID, b.TourDate, c.FirstName + ' ' + c.LastName AS ClientName, " +
+                "a.Name AS AttractionName, a.Parish, b.PartySize, b.TransportProvider, b.PickupLocation, " +
                 "b.PickupDateTime, b.BookingStatus " +
                 "FROM Bookings b " +
                 "INNER JOIN Clients c ON b.ClientID = c.ClientID " +
@@ -195,8 +190,7 @@ namespace invenman
         protected void gvBookings_SelectedIndexChanged(object sender, EventArgs e)
         {
             string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
-            if (isClient)
+            if (!CanManageTransportation(role))
             {
                 return;
             }
@@ -278,8 +272,7 @@ namespace invenman
         protected void btnSaveAssignment_Click(object sender, EventArgs e)
         {
             string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
-            if (isClient)
+            if (!CanManageTransportation(role))
             {
                 return;
             }
@@ -299,7 +292,28 @@ namespace invenman
             string notes = txtNotes.Text.Trim();
 
             DateTime pickupDateTime;
-            bool hasDateTime = DateTime.TryParse(datePart + " " + timePart, out pickupDateTime);
+            bool hasDateTime = DateTime.TryParseExact(
+                datePart + " " + timePart,
+                "yyyy-MM-dd HH:mm",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out pickupDateTime);
+
+            if (string.IsNullOrWhiteSpace(provider) ||
+                string.IsNullOrWhiteSpace(pickupLocation) ||
+                !hasDateTime)
+            {
+                lblMessage.CssClass = "notice notice-error";
+                lblMessage.Text = "Provider, pickup location, date, and time are required.";
+                return;
+            }
+
+            if (pickupLocation.Length > 200 || notes.Length > 1000)
+            {
+                lblMessage.CssClass = "notice notice-error";
+                lblMessage.Text = "Pickup location or notes exceed the allowed length.";
+                return;
+            }
 
             string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
 
@@ -311,58 +325,99 @@ namespace invenman
                 "PickupDateTime = @PickupDateTime, " +
                 "TransportNotes = @TransportNotes, " +
                 "BookingStatus = @BookingStatus " +
-                "WHERE BookingID = @BookingID",
+                "WHERE BookingID = @BookingID " +
+                "AND BookingStatus IN ('Active','Transport assigned')",
                 conn))
             {
-                if (string.IsNullOrEmpty(provider))
-                {
-                    cmd.Parameters.Add("@TransportProvider", SqlDbType.NVarChar, 150).Value = DBNull.Value;
-                }
-                else
-                {
-                    cmd.Parameters.Add("@TransportProvider", SqlDbType.NVarChar, 150).Value = provider;
-                }
-
-                if (string.IsNullOrEmpty(pickupLocation))
-                {
-                    cmd.Parameters.Add("@PickupLocation", SqlDbType.NVarChar, 200).Value = DBNull.Value;
-                }
-                else
-                {
-                    cmd.Parameters.Add("@PickupLocation", SqlDbType.NVarChar, 200).Value = pickupLocation;
-                }
-
-                if (hasDateTime)
-                {
-                    cmd.Parameters.Add("@PickupDateTime", SqlDbType.DateTime).Value = pickupDateTime;
-                }
-                else
-                {
-                    cmd.Parameters.Add("@PickupDateTime", SqlDbType.DateTime).Value = DBNull.Value;
-                }
+                cmd.Parameters.Add("@TransportProvider", SqlDbType.NVarChar, 150).Value = provider;
+                cmd.Parameters.Add("@PickupLocation", SqlDbType.NVarChar, 200).Value = pickupLocation;
+                cmd.Parameters.Add("@PickupDateTime", SqlDbType.DateTime2).Value = pickupDateTime;
 
                 if (string.IsNullOrEmpty(notes))
                 {
-                    cmd.Parameters.Add("@TransportNotes", SqlDbType.NVarChar).Value = DBNull.Value;
+                    cmd.Parameters.Add("@TransportNotes", SqlDbType.NVarChar, 1000).Value = DBNull.Value;
                 }
                 else
                 {
-                    cmd.Parameters.Add("@TransportNotes", SqlDbType.NVarChar).Value = notes;
+                    cmd.Parameters.Add("@TransportNotes", SqlDbType.NVarChar, 1000).Value = notes;
                 }
 
                 cmd.Parameters.Add("@BookingStatus", SqlDbType.VarChar, 50).Value = "Transport assigned";
                 cmd.Parameters.Add("@BookingID", SqlDbType.Int).Value = bookingId;
 
                 conn.Open();
-                cmd.ExecuteNonQuery();
+                int rows = cmd.ExecuteNonQuery();
+                if (rows != 1)
+                {
+                    lblMessage.CssClass = "notice notice-error";
+                    lblMessage.Text = "This booking changed before the assignment was saved. Refresh and try again.";
+                    return;
+                }
             }
 
-            lblMessage.CssClass = "mb-3 d-block text-success";
+            AuditLogger.Log(this, "TransportationAssigned", "Booking " + bookingId.ToString(CultureInfo.InvariantCulture));
+            lblMessage.CssClass = "notice notice-success";
             lblMessage.Text = "Transportation details saved for booking " + bookingId.ToString();
 
             string roleNow = GetCurrentRole();
             bool isClientNow = string.Equals(roleNow, "Client", StringComparison.OrdinalIgnoreCase);
             BindGrid(isClientNow);
+        }
+
+        protected void btnAutoPlan_Click(object sender, EventArgs e)
+        {
+            if (!CanManageTransportation(GetCurrentRole()))
+            {
+                lblMessage.CssClass = "notice notice-error";
+                lblMessage.Text = "Staff or administrator access is required.";
+                return;
+            }
+
+            try
+            {
+                var service = new TransportationPlanningService();
+                TransportationPlanningSummary summary = service.PlanUpcoming(DateTime.Today, 30);
+
+                if (!string.IsNullOrWhiteSpace(summary.Message))
+                {
+                    lblPlanSummary.CssClass = "notice notice-neutral";
+                    lblPlanSummary.Text = summary.Message;
+                }
+                else
+                {
+                    lblPlanSummary.CssClass = summary.Unscheduled.Count == 0
+                        ? "notice notice-success"
+                        : "notice notice-warning";
+                    lblPlanSummary.Text =
+                        summary.Assigned.ToString(CultureInfo.InvariantCulture) +
+                        " of " +
+                        summary.Considered.ToString(CultureInfo.InvariantCulture) +
+                        " bookings assigned. " +
+                        summary.Unscheduled.Count.ToString(CultureInfo.InvariantCulture) +
+                        " need manual review. " +
+                        summary.WriteConflicts.ToString(CultureInfo.InvariantCulture) +
+                        " changed during planning.";
+                }
+
+                AuditLogger.Log(
+                    this,
+                    "TransportationAutoPlanned",
+                    "Assigned " + summary.Assigned.ToString(CultureInfo.InvariantCulture) +
+                    " of " + summary.Considered.ToString(CultureInfo.InvariantCulture) + " bookings.");
+                BindGrid(false);
+            }
+            catch (SqlException ex)
+            {
+                AuditLogger.Log(this, "TransportationPlanningFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                lblPlanSummary.CssClass = "notice notice-error";
+                lblPlanSummary.Text = "The planning run could not be completed. Check the database migration and try again.";
+            }
+            catch (InvalidOperationException ex)
+            {
+                AuditLogger.Log(this, "TransportationPlanningFailed", ex.Message);
+                lblPlanSummary.CssClass = "notice notice-error";
+                lblPlanSummary.Text = "The planning inputs are not valid. Review vehicle and booking data.";
+            }
         }
 
         protected void btnClear_Click(object sender, EventArgs e)

@@ -4,6 +4,7 @@ using System.Data;
 using System.Data.SqlClient;
 using System.Web.UI;
 using System.Web.UI.WebControls;
+using invenman.Security;
 
 namespace invenman
 {
@@ -64,9 +65,9 @@ namespace invenman
                     }
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to load users. Detail: " + ex.Message;
+                lblError.Text = "Unable to load users.";
             }
         }
 
@@ -104,14 +105,26 @@ namespace invenman
             string newEmail = (txtEmailEdit == null) ? "" : (txtEmailEdit.Text ?? "").Trim();
             string newPassword = (txtPasswordEdit == null) ? "" : (txtPasswordEdit.Text ?? "");
 
-            if (string.IsNullOrWhiteSpace(newUsername))
+            if (string.IsNullOrWhiteSpace(newUsername) ||
+                newUsername.Length > 100 ||
+                newEmail.Length > 255 ||
+                !IsAllowedRole(newRole))
             {
-                lblError.Text = "Username cannot be empty.";
+                lblError.Text = "Review the username, email, and role.";
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(newPassword) &&
+                (newPassword.Length < 12 || newPassword.Length > 256))
+            {
+                lblError.Text = "New passwords must contain 12 to 256 characters.";
                 return;
             }
 
             string currentUsername = Session["Username"] as string;
-            if (!string.IsNullOrWhiteSpace(currentUsername) && string.Equals(currentUsername, newUsername, StringComparison.OrdinalIgnoreCase))
+            string usernameBeforeUpdate = GetUsernameById(userId);
+            if (!string.IsNullOrWhiteSpace(currentUsername)
+                && string.Equals(currentUsername, usernameBeforeUpdate, StringComparison.OrdinalIgnoreCase))
             {
                 if (!string.Equals(newRole, "Admin", StringComparison.OrdinalIgnoreCase))
                 {
@@ -126,20 +139,25 @@ namespace invenman
                 }
             }
 
+            string passwordHash = string.IsNullOrEmpty(newPassword)
+                ? null
+                : PasswordSecurity.HashPassword(newPassword);
+
             try
             {
                 using (SqlConnection conn = new SqlConnection(GetConnStr()))
                 using (SqlCommand cmd = new SqlCommand(@"
 UPDATE Users
 SET Username = @Username,
-    UserPassword = CASE WHEN @UserPassword = '' THEN UserPassword ELSE @UserPassword END,
+    UserPassword = CASE WHEN @UserPassword IS NULL THEN UserPassword ELSE @UserPassword END,
     RoleName = @RoleName,
     IsActive = @IsActive,
     Email = NULLIF(@Email, '')
 WHERE UserID = @UserID", conn))
                 {
                     cmd.Parameters.Add("@Username", SqlDbType.VarChar, 100).Value = newUsername;
-                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 200).Value = newPassword;
+                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 512).Value =
+                        (object)passwordHash ?? DBNull.Value;
                     cmd.Parameters.Add("@RoleName", SqlDbType.VarChar, 50).Value = newRole;
                     cmd.Parameters.Add("@IsActive", SqlDbType.Bit).Value = isActive;
                     cmd.Parameters.Add("@Email", SqlDbType.VarChar, 255).Value = newEmail;
@@ -154,9 +172,9 @@ WHERE UserID = @UserID", conn))
                     lblMessage.Text = rows > 0 ? "User updated successfully." : "No changes were saved.";
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to update user. Detail: " + ex.Message;
+                lblError.Text = "Unable to update user.";
             }
         }
 
@@ -193,9 +211,9 @@ WHERE UserID = @UserID", conn))
                     lblMessage.Text = rows > 0 ? "User deleted successfully." : "User not found.";
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to delete user. Detail: " + ex.Message;
+                lblError.Text = "Unable to delete user.";
             }
         }
 
@@ -214,11 +232,23 @@ WHERE UserID = @UserID", conn))
             string email = (txtNewEmail.Text ?? "").Trim();
             bool isActive = chkNewActive.Checked;
 
-            if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+            if (string.IsNullOrWhiteSpace(username) ||
+                string.IsNullOrWhiteSpace(password) ||
+                username.Length > 100 ||
+                email.Length > 255 ||
+                !IsAllowedRole(role))
             {
-                lblError.Text = "Username and password are required.";
+                lblError.Text = "Review the username, email, password, and role.";
                 return;
             }
+
+            if (password.Length < 12 || password.Length > 256)
+            {
+                lblError.Text = "Passwords must contain 12 to 256 characters.";
+                return;
+            }
+
+            string passwordHash = PasswordSecurity.HashPassword(password);
 
             try
             {
@@ -234,7 +264,7 @@ INSERT INTO Users (Username, UserPassword, RoleName, IsActive, Email)
 VALUES (@Username, @UserPassword, @RoleName, @IsActive, NULLIF(@Email, ''))", conn))
                 {
                     cmd.Parameters.Add("@Username", SqlDbType.VarChar, 100).Value = username;
-                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 200).Value = password;
+                    cmd.Parameters.Add("@UserPassword", SqlDbType.VarChar, 512).Value = passwordHash;
                     cmd.Parameters.Add("@RoleName", SqlDbType.VarChar, 50).Value = role;
                     cmd.Parameters.Add("@IsActive", SqlDbType.Bit).Value = isActive;
                     cmd.Parameters.Add("@Email", SqlDbType.VarChar, 255).Value = email;
@@ -252,10 +282,17 @@ VALUES (@Username, @UserPassword, @RoleName, @IsActive, NULLIF(@Email, ''))", co
                     lblMessage.Text = "User created successfully.";
                 }
             }
-            catch (Exception ex)
+            catch (SqlException)
             {
-                lblError.Text = "Unable to create user. Detail: " + ex.Message;
+                lblError.Text = "Unable to create user.";
             }
+        }
+
+        private static bool IsAllowedRole(string role)
+        {
+            return string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "Staff", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
         }
 
         protected void gvUsers_RowDataBound(object sender, GridViewRowEventArgs e)
@@ -333,7 +370,7 @@ VALUES (@Username, @UserPassword, @RoleName, @IsActive, NULLIF(@Email, ''))", co
                 return cs.ConnectionString;
             }
 
-            cs = ConfigurationManager.ConnectionStrings["TravelTime"];
+            cs = ConfigurationManager.ConnectionStrings["TravelTimeDb"];
             if (cs != null && !string.IsNullOrWhiteSpace(cs.ConnectionString))
             {
                 return cs.ConnectionString;

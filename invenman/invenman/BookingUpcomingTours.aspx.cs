@@ -1,7 +1,9 @@
-﻿using System;
+using System;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Globalization;
+using invenman.Security;
 
 namespace invenman
 {
@@ -9,161 +11,72 @@ namespace invenman
     {
         protected void Page_Load(object sender, EventArgs e)
         {
-            string role = GetCurrentRole();
-            bool isClient = string.Equals(role, "Client", StringComparison.OrdinalIgnoreCase);
+            if (IsPostBack) return;
 
-            if (!IsPostBack)
-            {
-                lblMode.Text = isClient ? "Client view of your upcoming tours" : "Staff or admin view of all upcoming tours";
-                BindGrid(isClient);
-            }
-        }
-
-        private string GetCurrentRole()
-        {
-            object r = Session["Role"];
-            if (r == null)
-            {
-                return "Guest";
-            }
-            string role = r.ToString();
-            if (string.IsNullOrWhiteSpace(role))
-            {
-                return "Guest";
-            }
-            return role;
-        }
-
-        private int? GetClientIdForCurrentUser()
-        {
-            string username = Session["Username"] as string;
-            if (string.IsNullOrWhiteSpace(username))
-            {
-                return null;
-            }
-
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT ClientID FROM Clients WHERE Email = @Email",
-                conn))
-            {
-                cmd.Parameters.Add("@Email", SqlDbType.VarChar, 255).Value = username;
-
-                conn.Open();
-                object result = cmd.ExecuteScalar();
-
-                if (result == null || result == DBNull.Value)
-                {
-                    return null;
-                }
-
-                return Convert.ToInt32(result);
-            }
+            bool isClient = string.Equals(
+                Session["Role"] as string,
+                "Client",
+                StringComparison.OrdinalIgnoreCase);
+            lblMode.Text = isClient
+                ? "Upcoming tours linked to your client profile."
+                : "The next 500 active tours across the operation.";
+            BindGrid(isClient);
         }
 
         private void BindGrid(bool isClient)
         {
-            if (isClient)
+            int? clientId = isClient ? ClientIdentity.GetClientId(this) : null;
+            if (isClient && !clientId.HasValue)
             {
-                int? clientId = GetClientIdForCurrentUser();
-                if (clientId == null)
+                gvUpcomingTours.DataSource = null;
+                gvUpcomingTours.DataBind();
+                lblMessage.CssClass = "notice notice-error";
+                lblMessage.Text = "Your account is not linked to a client profile.";
+                return;
+            }
+
+            const string sql = @"
+SELECT TOP (500)
+       b.TourDate,
+       c.FirstName + N' ' + c.LastName AS ClientName,
+       a.Name AS AttractionName,
+       a.Parish,
+       b.TotalAmount,
+       b.PaymentStatus,
+       b.BookingStatus
+FROM dbo.Bookings AS b
+INNER JOIN dbo.Clients AS c ON c.ClientID=b.ClientID
+INNER JOIN dbo.Attractions AS a ON a.AttractionID=b.AttractionID
+WHERE b.TourDate>=@Today
+  AND b.BookingStatus<>N'Cancelled'
+  AND (@ClientID IS NULL OR b.ClientID=@ClientID)
+ORDER BY b.TourDate, b.BookingID;";
+
+            try
+            {
+                using (SqlConnection connection = new SqlConnection(
+                    ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString))
+                using (SqlCommand command = new SqlCommand(sql, connection))
                 {
-                    lblMessage.CssClass = "mb-3 d-block text-warning";
-                    lblMessage.Text = "No client profile is linked to your login yet.";
-                    gvUpcomingTours.DataSource = null;
+                    command.Parameters.Add("@Today", SqlDbType.Date).Value = DateTime.Today;
+                    command.Parameters.Add("@ClientID", SqlDbType.Int).Value =
+                        clientId.HasValue ? (object)clientId.Value : DBNull.Value;
+                    var table = new DataTable();
+                    using (var adapter = new SqlDataAdapter(command))
+                    {
+                        adapter.Fill(table);
+                    }
+                    gvUpcomingTours.DataSource = table;
                     gvUpcomingTours.DataBind();
-                    return;
+                    lblMessage.CssClass = "notice notice-neutral";
+                    lblMessage.Text = table.Rows.Count == 0 ? "No upcoming tours found." : string.Empty;
                 }
-
-                LoadUpcomingForClient(clientId.Value);
             }
-            else
+            catch (SqlException ex)
             {
-                LoadUpcomingForStaff();
-            }
-        }
-
-        private void LoadUpcomingForStaff()
-        {
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT b.TourDate, c.FirstName + ' ' + c.LastName AS ClientName, " +
-                "a.Name AS AttractionName, a.Parish, b.TotalAmount, b.PaymentStatus, b.BookingStatus " +
-                "FROM Bookings b " +
-                "INNER JOIN Clients c ON b.ClientID = c.ClientID " +
-                "INNER JOIN Attractions a ON b.AttractionID = a.AttractionID " +
-                "WHERE b.TourDate >= @Today " +
-                "AND b.BookingStatus IN ('Active','Transport assigned') " +
-                "ORDER BY b.TourDate, ClientName",
-                conn))
-            {
-                cmd.Parameters.Add("@Today", SqlDbType.Date).Value = DateTime.Today;
-
-                DataTable dt = new DataTable();
-                using (SqlDataAdapter da = new SqlDataAdapter(cmd))
-                {
-                    da.Fill(dt);
-                }
-
-                if (dt.Rows.Count == 0)
-                {
-                    lblMessage.CssClass = "mb-3 d-block text-warning";
-                    lblMessage.Text = "There are no upcoming tours at this time.";
-                }
-                else
-                {
-                    lblMessage.CssClass = "mb-3 d-block text-success";
-                    lblMessage.Text = "Showing all upcoming tours.";
-                }
-
-                gvUpcomingTours.DataSource = dt;
-                gvUpcomingTours.DataBind();
-            }
-        }
-
-        private void LoadUpcomingForClient(int clientId)
-        {
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT b.TourDate, c.FirstName + ' ' + c.LastName AS ClientName, " +
-                "a.Name AS AttractionName, a.Parish, b.TotalAmount, b.PaymentStatus, b.BookingStatus " +
-                "FROM Bookings b " +
-                "INNER JOIN Clients c ON b.ClientID = c.ClientID " +
-                "INNER JOIN Attractions a ON b.AttractionID = a.AttractionID " +
-                "WHERE b.TourDate >= @Today " +
-                "AND b.BookingStatus IN ('Active','Transport assigned') " +
-                "AND b.ClientID = @ClientID " +
-                "ORDER BY b.TourDate",
-                conn))
-            {
-                cmd.Parameters.Add("@Today", SqlDbType.Date).Value = DateTime.Today;
-                cmd.Parameters.Add("@ClientID", SqlDbType.Int).Value = clientId;
-
-                DataTable dt = new DataTable();
-                using (SqlDataAdapter da = new SqlDataAdapter(cmd))
-                {
-                    da.Fill(dt);
-                }
-
-                if (dt.Rows.Count == 0)
-                {
-                    lblMessage.CssClass = "mb-3 d-block text-warning";
-                    lblMessage.Text = "You have no upcoming tours yet.";
-                }
-                else
-                {
-                    lblMessage.CssClass = "mb-3 d-block text-success";
-                    lblMessage.Text = "These are your upcoming tours.";
-                }
-
-                gvUpcomingTours.DataSource = dt;
-                gvUpcomingTours.DataBind();
+                AuditLogger.Log(this, "UpcomingToursFailed", ex.Number.ToString(CultureInfo.InvariantCulture));
+                lblMessage.CssClass = "notice notice-error";
+                lblMessage.Text = "Upcoming tours could not be loaded.";
             }
         }
     }

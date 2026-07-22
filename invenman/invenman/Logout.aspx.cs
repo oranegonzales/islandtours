@@ -1,5 +1,5 @@
-﻿using System;
-using System.Web;
+using System;
+using invenman.Security;
 
 namespace invenman
 {
@@ -15,18 +15,7 @@ namespace invenman
 
         protected void btnConfirmLogout_Click(object sender, EventArgs e)
         {
-            Session.Clear();
-            Session.Abandon();
-
-            if (Request.Cookies["TravelTimeAuth"] != null)
-            {
-                HttpCookie cookie = new HttpCookie("TravelTimeAuth");
-                cookie.Value = "";
-                cookie.Expires = DateTime.Now.AddDays(-1);
-                cookie.HttpOnly = true;
-                Response.Cookies.Add(cookie);
-            }
-
+            AuthSecurity.SignOut(Context);
             Response.Redirect("~/Home.aspx", false);
             Context.ApplicationInstance.CompleteRequest();
         }

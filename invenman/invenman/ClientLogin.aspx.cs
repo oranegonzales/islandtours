@@ -1,7 +1,5 @@
-﻿using System;
-using System.Configuration;
-using System.Data.SqlClient;
-using System.Web;
+using System;
+using invenman.Security;
 
 namespace invenman
 {
@@ -11,7 +9,7 @@ namespace invenman
         {
             if (!IsPostBack)
             {
-                lblMessage.Text = "";
+                lblMessage.Text = string.Empty;
             }
         }
 
@@ -24,8 +22,7 @@ namespace invenman
 
             string username = txtUsername.Text.Trim();
             string password = txtPassword.Text;
-
-            string role = ValidateClientAndGetRole(username, password);
+            string role = UserAuthentication.AuthenticateClient(username, password);
 
             if (string.IsNullOrWhiteSpace(role))
             {
@@ -33,43 +30,10 @@ namespace invenman
                 return;
             }
 
-            Session["Username"] = username;
-            Session["Role"] = role;
-
-            if (chkStaySignedIn.Checked)
-            {
-                HttpCookie cookie = new HttpCookie("TravelTimeAuth", username);
-                cookie.Expires = DateTime.Now.AddDays(7);
-                cookie.HttpOnly = true;
-                Response.Cookies.Add(cookie);
-            }
+            AuthSecurity.SignIn(Context, username, chkStaySignedIn.Checked);
 
             Response.Redirect("~/Home.aspx", false);
             Context.ApplicationInstance.CompleteRequest();
-        }
-
-        private string ValidateClientAndGetRole(string username, string password)
-        {
-            string connStr = ConfigurationManager.ConnectionStrings["TravelTime"].ConnectionString;
-
-            using (SqlConnection conn = new SqlConnection(connStr))
-            using (SqlCommand cmd = new SqlCommand(
-                "SELECT RoleName FROM Users WHERE Username = @Username AND UserPassword = @Password AND IsActive = 1 AND RoleName = 'Client'",
-                conn))
-            {
-                cmd.Parameters.Add("@Username", System.Data.SqlDbType.VarChar, 100).Value = username;
-                cmd.Parameters.Add("@Password", System.Data.SqlDbType.VarChar, 200).Value = password;
-
-                conn.Open();
-                object result = cmd.ExecuteScalar();
-
-                if (result == null || result == DBNull.Value)
-                {
-                    return "";
-                }
-
-                return result.ToString();
-            }
         }
     }
 }

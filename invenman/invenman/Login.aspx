@@ -1,34 +1,46 @@
-﻿<%@ Page Title="Staff Login" Language="C#" MasterPageFile="~/Site.master" AutoEventWireup="true" CodeBehind="Login.aspx.cs" Inherits="invenman.Login" %>
+<%@ Page Title="Staff sign in" Language="C#" MasterPageFile="~/Site.master" AutoEventWireup="true" CodeBehind="Login.aspx.cs" Inherits="invenman.Login" %>
 
 <asp:Content ID="Content1" ContentPlaceHolderID="MainContent" runat="server">
-    <div class="p-3">
-        <h2 class="mb-3" style="font-weight:800;">Staff Login</h2>
-
-        <asp:Label ID="lblMessage" runat="server" ForeColor="#ffb4b4"></asp:Label>
-
-        <div class="mt-3" style="max-width:520px;">
-            <div class="mb-3">
-                <label class="form-label" style="color:#cbd5e1;">Username</label>
-                <asp:TextBox ID="txtUsername" runat="server" CssClass="form-control" />
-                <asp:RequiredFieldValidator ID="rfvUsername" runat="server" ControlToValidate="txtUsername" ErrorMessage="Username is required." ForeColor="#ffb4b4" Display="Dynamic" />
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label" style="color:#cbd5e1;">Password</label>
-                <asp:TextBox ID="txtPassword" runat="server" TextMode="Password" CssClass="form-control" />
-                <asp:RequiredFieldValidator ID="rfvPassword" runat="server" ControlToValidate="txtPassword" ErrorMessage="Password is required." ForeColor="#ffb4b4" Display="Dynamic" />
-            </div>
-
-            <div class="form-check mb-3">
-                <input id="chkStaySignedIn" runat="server" type="checkbox" class="form-check-input" />
-                <asp:Label ID="lblStaySignedIn" runat="server" AssociatedControlID="chkStaySignedIn" CssClass="form-check-label" Text="Stay signed in"></asp:Label>
-            </div>
-
-            <asp:Button ID="btnLogin" runat="server" Text="Login" CssClass="tt-btn" OnClick="btnLogin_Click" />
-
-            <div class="mt-3">
-                <a class="tt-btn" href="ClientLogin.aspx">Go to Client Login</a>
-            </div>
+    <section class="auth-layout">
+        <div class="auth-copy">
+            <span class="eyebrow">Staff access</span>
+            <h1>Welcome back.</h1>
+            <p>Sign in to manage client records, bookings, transportation, payments, and reporting.</p>
         </div>
-    </div>
+
+        <div class="auth-form">
+            <h2>Staff sign in</h2>
+            <asp:Label ID="lblMessage" runat="server" CssClass="notice notice-error"></asp:Label>
+
+            <div class="field">
+                <label for="<%= txtUsername.ClientID %>">Username</label>
+                <asp:TextBox ID="txtUsername" runat="server" CssClass="form-control" MaxLength="100" autocomplete="username" />
+                <asp:RequiredFieldValidator ID="rfvUsername" runat="server"
+                    ControlToValidate="txtUsername"
+                    ErrorMessage="Enter your username."
+                    CssClass="field-error"
+                    Display="Dynamic" />
+            </div>
+
+            <div class="field">
+                <label for="<%= txtPassword.ClientID %>">Password</label>
+                <asp:TextBox ID="txtPassword" runat="server" TextMode="Password" CssClass="form-control" MaxLength="256" autocomplete="current-password" />
+                <asp:RequiredFieldValidator ID="rfvPassword" runat="server"
+                    ControlToValidate="txtPassword"
+                    ErrorMessage="Enter your password."
+                    CssClass="field-error"
+                    Display="Dynamic" />
+            </div>
+
+            <div class="check-field">
+                <input id="chkStaySignedIn" runat="server" type="checkbox" />
+                <asp:Label ID="lblStaySignedIn" runat="server" AssociatedControlID="chkStaySignedIn" Text="Keep me signed in on this device"></asp:Label>
+            </div>
+
+            <asp:Button ID="btnLogin" runat="server" Text="Sign in"
+                CssClass="button button-primary auth-submit"
+                OnClick="btnLogin_Click" />
+            <p class="auth-switch">Travelling with us? <a runat="server" href="~/ClientLogin.aspx">Use client sign in</a>.</p>
+        </div>
+    </section>
 </asp:Content>
