@@ -1,6 +1,6 @@
 # Security notes
 
-This project applies defense-in-depth controls suitable for a portfolio and development environment. It has not undergone an independent penetration test and should not be described as invulnerable or production-certified.
+This project applies defense-in-depth controls suitable for a portfolio and development environment.
 
 ## Implemented controls
 
