@@ -90,7 +90,7 @@ namespace invenman
 
         private void SaveToWebConfig()
         {
-            Configuration config = WebConfigurationManager.OpenWebConfiguration("~");
+            System.Configuration.Configuration config = WebConfigurationManager.OpenWebConfiguration("~");
             var settings = config.AppSettings.Settings;
 
             SetSetting(settings, "MaintenanceMode", chkMaintenanceMode.Checked ? "true" : "false");
